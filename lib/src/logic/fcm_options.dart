@@ -10,7 +10,7 @@ part 'fcm_options.g.dart';
 @JsonSerializable()
 final class FirebaseFcmOptions {
 
-  const FirebaseFcmOptions({this.analyticsLabel, this.image});
+  const FirebaseFcmOptions({this.analyticsLabel});
 
   factory FirebaseFcmOptions.fromJson(Map<String, dynamic> json) =>
       _$FirebaseFcmOptionsFromJson(json);
@@ -20,12 +20,6 @@ final class FirebaseFcmOptions {
   /// maximum length is 50 characters.
   @JsonKey(name: 'analytics_label')
   final String? analyticsLabel;
-
-  /// URL of an image to be displayed in the notification.
-  ///
-  /// This overrides the image set in [FirebaseNotification.image] and applies
-  /// across all platforms that support notification images.
-  final String? image;
 
   Map<String, dynamic> toJson() => _$FirebaseFcmOptionsToJson(this);
 }

@@ -3,14 +3,13 @@ description: >-
   A pure Dart library for sending Firebase Cloud Messages and managing topics 
   using the FCM HTTP v1 API. Perfect for server-side environments like Serverpod.
   Includes native Google Application Default Credentials (ADC) support.
-version: 3.0.1
+version: 3.0.2
 homepage: https://github.com/OttomanDeveloper/firebase_cloud_messaging_dart
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
-  collection: ^1.18.0
   googleapis_auth: ^1.6.0
   http: ^1.2.2
   json_annotation: ^4.9.0

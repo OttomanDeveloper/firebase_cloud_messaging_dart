@@ -235,9 +235,9 @@ enum AndroidNotificationProxy {
   @JsonValue('DENY')
   deny,
 
-  /// Proxy if the delivery priority was degraded by the system.
-  @JsonValue('IF_PRIORITY_DEGRADED')
-  ifPriorityDegraded,
+  /// Proxy if the delivery priority was lowered by the system.
+  @JsonValue('IF_PRIORITY_LOWERED')
+  ifPriorityLowered,
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +276,7 @@ final class LightSettings {
 
 /// An RGBA colour value used in FCM notification models.
 ///
-/// Each component is a value in the range 0–255.
+/// Each component is a float in the range 0.0–1.0.
 @JsonSerializable()
 final class FCMColor {
 
@@ -284,17 +284,17 @@ final class FCMColor {
 
   factory FCMColor.fromJson(Map<String, dynamic> json) =>
       _$FCMColorFromJson(json);
-  /// Red component (0–255).
-  final int? red;
+  /// Red component (0.0–1.0).
+  final double? red;
 
-  /// Green component (0–255).
-  final int? green;
+  /// Green component (0.0–1.0).
+  final double? green;
 
-  /// Blue component (0–255).
-  final int? blue;
+  /// Blue component (0.0–1.0).
+  final double? blue;
 
-  /// Alpha (opacity) component (0–255). `255` is fully opaque.
-  final int? alpha;
+  /// Alpha (opacity) component (0.0–1.0). `1.0` is fully opaque.
+  final double? alpha;
 
   Map<String, dynamic> toJson() => _$FCMColorToJson(this);
 }

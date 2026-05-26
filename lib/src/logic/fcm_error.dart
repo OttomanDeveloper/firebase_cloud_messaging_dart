@@ -122,10 +122,12 @@ final class FcmError {
 
   /// Returns `true` when retrying the same request might eventually succeed.
   ///
-  /// `quotaExceeded` and `unavailable` are the two retryable FCM error codes.
+  /// `quotaExceeded`, `unavailable`, and `internal` are the three retryable
+  /// FCM error codes per the official FCM error documentation.
   bool get isRetryable =>
       errorCode == FcmErrorCode.quotaExceeded ||
-      errorCode == FcmErrorCode.unavailable;
+      errorCode == FcmErrorCode.unavailable ||
+      errorCode == FcmErrorCode.internal;
 
   @override
   String toString() =>

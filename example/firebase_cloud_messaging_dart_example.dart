@@ -97,7 +97,6 @@ void main() async {
         ),
         fcmOptions: FirebaseFcmOptions(
           analyticsLabel: 'example',
-          image: 'https://example.com/cross-platform.png',
         ),
       ),
     ),

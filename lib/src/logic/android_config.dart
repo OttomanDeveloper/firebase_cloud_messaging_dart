@@ -19,6 +19,9 @@ final class FirebaseAndroidConfig {
     this.data,
     this.notification,
     this.directBootOk,
+    this.fcmOptions,
+    this.bandwidthConstrainedOk,
+    this.restrictedSatelliteOk,
   });
 
   factory FirebaseAndroidConfig.fromJson(Map<String, dynamic> json) =>
@@ -66,7 +69,41 @@ final class FirebaseAndroidConfig {
   @JsonKey(name: 'direct_boot_ok')
   final bool? directBootOk;
 
+  /// Android-specific FCM options (analytics label).
+  @JsonKey(name: 'fcm_options')
+  final AndroidFcmOptions? fcmOptions;
+
+  /// When `true`, messages are allowed to be delivered while the device is
+  /// in bandwidth-constrained mode.
+  @JsonKey(name: 'bandwidth_constrained_ok')
+  final bool? bandwidthConstrainedOk;
+
+  /// When `true`, messages are allowed to be delivered while the device is
+  /// connected over a restricted satellite network.
+  @JsonKey(name: 'restricted_satellite_ok')
+  final bool? restrictedSatelliteOk;
+
   Map<String, dynamic> toJson() => _$FirebaseAndroidConfigToJson(this);
+}
+
+// ---------------------------------------------------------------------------
+// Android FCM options
+// ---------------------------------------------------------------------------
+
+/// Android-specific FCM options.
+@JsonSerializable()
+final class AndroidFcmOptions {
+
+  const AndroidFcmOptions({this.analyticsLabel});
+
+  factory AndroidFcmOptions.fromJson(Map<String, dynamic> json) =>
+      _$AndroidFcmOptionsFromJson(json);
+
+  /// An analytics label associated with this message for Android.
+  @JsonKey(name: 'analytics_label')
+  final String? analyticsLabel;
+
+  Map<String, dynamic> toJson() => _$AndroidFcmOptionsToJson(this);
 }
 
 // ---------------------------------------------------------------------------

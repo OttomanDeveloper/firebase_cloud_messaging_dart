@@ -80,27 +80,23 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // FirebaseFcmOptions — new image field
+  // FirebaseFcmOptions
   // -------------------------------------------------------------------------
   group('FirebaseFcmOptions', () {
-    test('image field serializes correctly', () {
+    test('analyticsLabel serializes correctly', () {
       const FirebaseFcmOptions opts = FirebaseFcmOptions(
         analyticsLabel: 'promo',
-        image: 'https://example.com/img.png',
       );
       final Map<String, dynamic> map = opts.toJson();
       expect(map['analytics_label'], equals('promo'));
-      expect(map['image'], equals('https://example.com/img.png'));
     });
 
     test('round-trips from JSON', () {
       final FirebaseFcmOptions opts =
           FirebaseFcmOptions.fromJson(<String, dynamic>{
         'analytics_label': 'test',
-        'image': 'https://example.com/a.png',
       });
       expect(opts.analyticsLabel, equals('test'));
-      expect(opts.image, equals('https://example.com/a.png'));
     });
   });
 
@@ -223,6 +219,20 @@ void main() {
 
       final FcmError? error = FcmError.fromResponseBody(body);
       expect(error!.errorCode, equals(FcmErrorCode.unavailable));
+      expect(error.isRetryable, isTrue);
+    });
+
+    test('parses INTERNAL and marks it retryable', () {
+      final Map<String, dynamic> body = json.decode('''{
+        "error": {
+          "code": 500,
+          "message": "Internal server error.",
+          "status": "INTERNAL"
+        }
+      }''') as Map<String, dynamic>;
+
+      final FcmError? error = FcmError.fromResponseBody(body);
+      expect(error!.errorCode, equals(FcmErrorCode.internal));
       expect(error.isRetryable, isTrue);
     });
 

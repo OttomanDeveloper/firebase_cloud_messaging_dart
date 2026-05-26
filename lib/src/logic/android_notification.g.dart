@@ -100,7 +100,7 @@ const _$AndroidNotificationProxyEnumMap = {
   AndroidNotificationProxy.proxyUnspecified: 'PROXY_UNSPECIFIED',
   AndroidNotificationProxy.allow: 'ALLOW',
   AndroidNotificationProxy.deny: 'DENY',
-  AndroidNotificationProxy.ifPriorityDegraded: 'IF_PRIORITY_DEGRADED',
+  AndroidNotificationProxy.ifPriorityLowered: 'IF_PRIORITY_LOWERED',
 };
 
 LightSettings _$LightSettingsFromJson(Map<String, dynamic> json) =>
@@ -120,10 +120,10 @@ Map<String, dynamic> _$LightSettingsToJson(LightSettings instance) =>
     };
 
 FCMColor _$FCMColorFromJson(Map<String, dynamic> json) => FCMColor(
-      red: (json['red'] as num?)?.toInt(),
-      green: (json['green'] as num?)?.toInt(),
-      blue: (json['blue'] as num?)?.toInt(),
-      alpha: (json['alpha'] as num?)?.toInt(),
+      red: (json['red'] as num?)?.toDouble(),
+      green: (json['green'] as num?)?.toDouble(),
+      blue: (json['blue'] as num?)?.toDouble(),
+      alpha: (json['alpha'] as num?)?.toDouble(),
     );
 
 Map<String, dynamic> _$FCMColorToJson(FCMColor instance) => <String, dynamic>{

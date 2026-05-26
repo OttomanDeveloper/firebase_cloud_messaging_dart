@@ -171,9 +171,18 @@ class FirebaseCloudMessagingServer {
     FcmRegistrationCallback? onRegistrationChange,
     http.Client? httpClient,
   }) {
-    final File file = serviceAccountFile is String
-        ? File(serviceAccountFile)
-        : serviceAccountFile as File;
+    final File file;
+    if (serviceAccountFile is String) {
+      file = File(serviceAccountFile);
+    } else if (serviceAccountFile is File) {
+      file = serviceAccountFile;
+    } else {
+      throw ArgumentError.value(
+        serviceAccountFile,
+        'serviceAccountFile',
+        'Must be a File object or a String path.',
+      );
+    }
 
     return FirebaseCloudMessagingServer.fromServiceAccountJson(
       file.readAsStringSync(),
@@ -191,12 +200,6 @@ class FirebaseCloudMessagingServer {
   /// The base URL path for the FCM HTTP v1 API.
   static const String _fcmApiEndpoint =
       'https://fcm.googleapis.com/v1/projects';
-
-  /// The endpoint for the IID batch registration API (Subscribe).
-  // MOVED to FcmTopicManagement
-
-  /// The endpoint for the IID batch registration API (Unsubscribe).
-  // MOVED to FcmTopicManagement
 
   // ---------------------------------------------------------------------------
   // Constructor & fields
@@ -220,7 +223,7 @@ class FirebaseCloudMessagingServer {
   final FcmLogger logger;
 
   /// Controls automatic retry for retryable FCM errors
-  /// (`QUOTA_EXCEEDED` and `UNAVAILABLE`).
+  /// (`QUOTA_EXCEEDED`, `UNAVAILABLE`, and `INTERNAL`).
   ///
   /// Defaults to [FcmRetryConfig] (3 retries, exponential back-off).
   final FcmRetryConfig retryConfig;
@@ -241,7 +244,7 @@ class FirebaseCloudMessagingServer {
 
   /// Prevents multiple simultaneous authentication refreshes when
   /// many requests are fired in parallel.
-  Future<void>? _authFuture;
+  Future<AccessCredentials>? _authFuture;
 
   // ---------------------------------------------------------------------------
   // Public send API
@@ -330,10 +333,12 @@ class FirebaseCloudMessagingServer {
   /// ```
   Future<ServerResult> sendToTopic(
     String topic,
-    FirebaseMessage message,
-  ) {
+    FirebaseMessage message, {
+    bool validateOnly = false,
+  }) {
     return _send(
       FirebaseSend(
+        validateOnly: validateOnly,
         message: message.copyWith(
           topic: topic,
         ),
@@ -353,10 +358,12 @@ class FirebaseCloudMessagingServer {
   /// ```
   Future<ServerResult> sendToCondition(
     String condition,
-    FirebaseMessage message,
-  ) {
+    FirebaseMessage message, {
+    bool validateOnly = false,
+  }) {
     return _send(
       FirebaseSend(
+        validateOnly: validateOnly,
         message: message.copyWith(
           condition: condition,
         ),
@@ -379,19 +386,34 @@ class FirebaseCloudMessagingServer {
     return _send(sendObject.copyWith(validateOnly: true));
   }
 
-  /// Sends multiple pre-built [FirebaseSend] objects **sequentially**.
+  /// Sends multiple pre-built [FirebaseSend] objects in **parallel**.
   ///
-  /// Prefer [sendToMultiple] for better throughput when sending the same
-  /// message to many tokens. Use this method when each message is distinct.
+  /// Use this when each message is distinct (different payloads, different
+  /// targets). For sending the same message to many tokens, prefer
+  /// [sendToMultiple].
   ///
   /// Returns a [List<ServerResult>] in the same order as [sendObjects].
   Future<List<ServerResult>> sendMessages(
     List<FirebaseSend> sendObjects,
   ) async {
-    final List<ServerResult> results = <ServerResult>[];
-    for (final FirebaseSend sendObject in sendObjects) {
-      results.add(await _send(sendObject));
-    }
+    assert(sendObjects.isNotEmpty, 'sendObjects list must not be empty');
+
+    logger(
+      FcmLogLevel.info,
+      'sendMessages: sending ${sendObjects.length} messages',
+    );
+
+    final List<ServerResult> results =
+        await Future.wait(sendObjects.map(_send));
+
+    final int successCount =
+        results.where((ServerResult r) => r.successful).length;
+    logger(
+      FcmLogLevel.info,
+      'sendMessages: done — $successCount succeeded, '
+      '${results.length - successCount} failed',
+    );
+
     return results;
   }
 
@@ -401,9 +423,15 @@ class FirebaseCloudMessagingServer {
 
   /// Fetches a fresh OAuth 2.0 access token from Google and caches it.
   ///
-  /// This is called automatically by [_send] — you do not need to call it
-  /// directly unless you want to pre-warm the credentials.
-  Future<AccessCredentials> performAuth() async {
+  /// Token management is handled automatically — prefer calling [send] directly.
+  /// Use this only to explicitly pre-warm credentials before the first send.
+  @Deprecated(
+    'Token management is automatic. '
+    'Call send() directly; auth is handled internally.',
+  )
+  Future<AccessCredentials> performAuth() => _performAuth();
+
+  Future<AccessCredentials> _performAuth() async {
     logger(FcmLogLevel.debug, 'Requesting new OAuth access token from Google');
 
     const List<String> scopes = <String>[
@@ -450,7 +478,15 @@ class FirebaseCloudMessagingServer {
   Future<ServerResult> _send(FirebaseSend sendObject) async {
     assert(
       sendObject.message != null,
-      'FirebaseSend.message must not be null. Either provide a token, topic, or condition.',
+      'FirebaseSend.message must not be null.',
+    );
+    assert(
+      <String?>[
+        sendObject.message?.token,
+        sendObject.message?.topic,
+        sendObject.message?.condition,
+      ].where((String? v) => v != null).length == 1,
+      'FirebaseMessage must have exactly one of token, topic, or condition set.',
     );
 
     // Ensure we have a valid, non-expired access token.
@@ -506,7 +542,7 @@ class FirebaseCloudMessagingServer {
     final String? targetToken = sendObject.message?.token;
 
     if (successful) {
-      final FirebaseMessage messageSent = successful && bodyMap != null
+      final FirebaseMessage messageSent = bodyMap != null
           ? FirebaseMessage.fromJson(bodyMap)
           : const FirebaseMessage();
 
@@ -535,7 +571,11 @@ class FirebaseCloudMessagingServer {
       '${fcmError?.status ?? response.reasonPhrase}',
     );
 
-    if (targetToken != null) {
+    // Only mark a token as invalid when FCM explicitly rejects it as such.
+    // Transient errors (quota, unavailable) do not invalidate the token.
+    if (targetToken != null &&
+        (fcmError?.errorCode == FcmErrorCode.unregistered ||
+            fcmError?.errorCode == FcmErrorCode.senderIdMismatch)) {
       onRegistrationChange?.call(
           targetToken, FcmRegistrationStatus.unregistered);
     }
@@ -643,7 +683,7 @@ class FirebaseCloudMessagingServer {
       }
 
       // Capture the future to prevent duplicate triggers.
-      _authFuture = performAuth();
+      _authFuture = _performAuth();
       try {
         await _authFuture;
       } finally {

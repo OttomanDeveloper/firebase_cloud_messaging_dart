@@ -1,5 +1,37 @@
 # Changelog
 
+## 3.0.2 (FCM v1 API Compliance & Bug Fixes)
+
+### Bug Fixes
+
+* **Fix (Critical)**: `onRegistrationChange` callback no longer fires on transient errors (`QUOTA_EXCEEDED`, `UNAVAILABLE`, `INTERNAL`). Previously it marked valid tokens as unregistered on any failure, causing premature token deletion. Now only fires on `UNREGISTERED` and `SENDER_ID_MISMATCH`.
+* **Fix (Critical)**: `AndroidNotificationProxy.ifPriorityDegraded` renamed to `ifPriorityLowered` — the previous value `IF_PRIORITY_DEGRADED` does not exist in the FCM v1 API. Corrected to `IF_PRIORITY_LOWERED` per the official spec.
+* **Fix (Critical)**: `FCMColor` fields changed from `int` (0–255) to `double` (0.0–1.0). The FCM v1 API defines color components as floats in the range `[0, 1]`, not integers.
+* **Fix**: `INTERNAL` (HTTP 500) errors are now correctly marked as retryable, matching the official FCM error documentation.
+* **Fix**: Removed phantom `image` field from `FirebaseFcmOptions`. The top-level `FcmOptions` in the FCM v1 API only contains `analyticsLabel` — the `image` field never had any effect.
+
+### New Features
+
+* **Feat**: Added `AndroidFcmOptions` class with `analyticsLabel` field and `fcmOptions` on `FirebaseAndroidConfig`, enabling per-platform analytics labels for Android.
+* **Feat**: Added `bandwidthConstrainedOk` and `restrictedSatelliteOk` fields to `FirebaseAndroidConfig` per the FCM v1 API spec.
+* **Feat**: `sendMessages()` now executes in **parallel** via `Future.wait`, matching the official Admin SDK `sendEach()` behavior. Previously sent sequentially.
+* **Feat**: `sendToTopic()` and `sendToCondition()` now accept an optional `validateOnly` parameter for dry-run validation.
+* **Feat**: `_send()` now asserts that exactly one of `token`, `topic`, or `condition` is set on the message, catching misuse early.
+
+### Improvements
+
+* **Refactor**: `performAuth()` deprecated — token management is now fully internal via `_performAuth()`.
+* **Refactor**: `fromServiceAccountFile()` now throws a clear `ArgumentError` instead of a `CastError` when given an invalid type.
+* **Refactor**: Removed unused `collection` dependency.
+* **Refactor**: Cleaned up orphaned comments and stale doc references.
+
+### Breaking Changes
+
+* `AndroidNotificationProxy.ifPriorityDegraded` → `AndroidNotificationProxy.ifPriorityLowered`
+* `FCMColor` fields changed from `int?` to `double?`
+* `FirebaseFcmOptions.image` removed (was never part of the FCM v1 API)
+* `performAuth()` deprecated in favor of automatic token management
+
 ## 3.0.1 (Deep Hardening & Optimization)
 
 * **Records for Performance**: Integrated Dart 3 Records in `sendToMultiple` for efficient intermediate data mapping, reducing object allocation overhead during large fan-outs.
