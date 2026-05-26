@@ -42,6 +42,7 @@ dependencies:
 my_app/
 ├── lib/
 ├── pubspec.yaml
+├── serviceAccountKey.json   <-- place it here
 └── .gitignore
 ```
 
