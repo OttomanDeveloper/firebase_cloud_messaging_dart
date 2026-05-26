@@ -16,14 +16,17 @@
 * **Feat**: Added `bandwidthConstrainedOk` and `restrictedSatelliteOk` fields to `FirebaseAndroidConfig` per the FCM v1 API spec.
 * **Feat**: `sendMessages()` now executes in **parallel** via `Future.wait`, matching the official Admin SDK `sendEach()` behavior. Previously sent sequentially.
 * **Feat**: `sendToTopic()` and `sendToCondition()` now accept an optional `validateOnly` parameter for dry-run validation.
+* **Feat**: Added `liveActivityToken` field to `FirebaseApnsConfig` for Apple Live Activity updates (iOS 16.1+).
 * **Feat**: `_send()` now asserts that exactly one of `token`, `topic`, or `condition` is set on the message, catching misuse early.
 
 ### Improvements
 
+* **Feat**: `Retry-After` header is now honored when present on 429/503 responses, falling back to exponential backoff otherwise. Per FCM best practices.
 * **Refactor**: `performAuth()` deprecated — token management is now fully internal via `_performAuth()`.
 * **Refactor**: `fromServiceAccountFile()` now throws a clear `ArgumentError` instead of a `CastError` when given an invalid type.
 * **Refactor**: Removed unused `collection` dependency.
 * **Refactor**: Cleaned up orphaned comments and stale doc references.
+* **Refactor**: Calling any method after `dispose()` now throws a clear `StateError` instead of an opaque HTTP client error.
 
 ### Breaking Changes
 

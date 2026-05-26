@@ -20,6 +20,7 @@ FirebaseApnsConfig _$FirebaseApnsConfigFromJson(Map<String, dynamic> json) =>
           : ApnsFcmOptions.fromJson(
               json['fcm_options'] as Map<String, dynamic>),
       payload: json['payload'] as Map<String, dynamic>?,
+      liveActivityToken: json['live_activity_token'] as String?,
     );
 
 Map<String, dynamic> _$FirebaseApnsConfigToJson(FirebaseApnsConfig instance) =>
@@ -28,4 +29,5 @@ Map<String, dynamic> _$FirebaseApnsConfigToJson(FirebaseApnsConfig instance) =>
       'notification': instance.notification,
       'fcm_options': instance.fcmOptions,
       'payload': instance.payload,
+      'live_activity_token': instance.liveActivityToken,
     };

@@ -19,7 +19,7 @@ import 'package:http/http.dart' as http;
 ///
 /// void main() async {
 ///   final credentials = jsonDecode(
-///     File('service_account.json').readAsStringSync(),
+///     File('serviceAccountKey.json').readAsStringSync(),
 ///   ) as Map<String, dynamic>;
 ///
 ///   final server = FirebaseCloudMessagingServer(credentials);
@@ -160,7 +160,7 @@ class FirebaseCloudMessagingServer {
   ///
   /// ```dart
   /// final server = FirebaseCloudMessagingServer.fromServiceAccountFile(
-  ///   'service_account.json',
+  ///   'serviceAccountKey.json',
   /// );
   /// ```
   factory FirebaseCloudMessagingServer.fromServiceAccountFile(
@@ -245,6 +245,9 @@ class FirebaseCloudMessagingServer {
   /// Prevents multiple simultaneous authentication refreshes when
   /// many requests are fired in parallel.
   Future<AccessCredentials>? _authFuture;
+
+  /// Whether [dispose] has been called.
+  bool _disposed = false;
 
   // ---------------------------------------------------------------------------
   // Public send API
@@ -476,6 +479,12 @@ class FirebaseCloudMessagingServer {
 
   /// Sends [sendObject] to FCM, handling auth refresh and retries.
   Future<ServerResult> _send(FirebaseSend sendObject) async {
+    if (_disposed) {
+      throw StateError(
+        'FirebaseCloudMessagingServer has been disposed. '
+        'Create a new instance to continue sending messages.',
+      );
+    }
     assert(
       sendObject.message != null,
       'FirebaseSend.message must not be null.',
@@ -584,7 +593,8 @@ class FirebaseCloudMessagingServer {
     if (fcmError != null &&
         fcmError.isRetryable &&
         attempt < retryConfig.maxRetries) {
-      final Duration delay = retryConfig.delayForAttempt(attempt);
+      final Duration delay =
+          _retryDelay(response, attempt);
       logger(
         FcmLogLevel.warning,
         'Retrying in ${delay.inMilliseconds}ms '
@@ -701,6 +711,19 @@ class FirebaseCloudMessagingServer {
     }
   }
 
+  /// Returns the retry delay, honoring the `Retry-After` header if present,
+  /// otherwise falling back to exponential backoff from [retryConfig].
+  Duration _retryDelay(http.Response response, int attempt) {
+    final String? retryAfter = response.headers['retry-after'];
+    if (retryAfter != null) {
+      final int? seconds = int.tryParse(retryAfter);
+      if (seconds != null && seconds > 0) {
+        return Duration(seconds: seconds);
+      }
+    }
+    return retryConfig.delayForAttempt(attempt);
+  }
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -711,6 +734,7 @@ class FirebaseCloudMessagingServer {
   /// a widget or service locator cleanup). After calling [dispose], the server
   /// instance should not be used again.
   void dispose() {
+    _disposed = true;
     _httpClient.close();
     logger(FcmLogLevel.debug, 'FirebaseCloudMessagingServer disposed');
   }

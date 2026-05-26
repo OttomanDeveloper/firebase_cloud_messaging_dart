@@ -21,6 +21,7 @@ final class FirebaseApnsConfig {
     this.notification,
     this.fcmOptions,
     this.payload,
+    this.liveActivityToken,
   });
 
   factory FirebaseApnsConfig.fromJson(Map<String, dynamic> json) {
@@ -38,6 +39,7 @@ final class FirebaseApnsConfig {
         headers: config.headers,
         fcmOptions: config.fcmOptions,
         payload: config.payload,
+        liveActivityToken: config.liveActivityToken,
         notification: FirebaseApnsNotification.fromJson(
           payload['aps'] as Map<String, dynamic>,
         ),
@@ -70,6 +72,11 @@ final class FirebaseApnsConfig {
   ///
   /// An object containing a list of "key": value pairs.
   final Map<String, dynamic>? payload;
+
+  /// Token for sending updates to an Apple Live Activity (iOS 16.1+)
+  /// or a push-to-start token for starting a Live Activity.
+  @JsonKey(name: 'live_activity_token')
+  final String? liveActivityToken;
 
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> json = _$FirebaseApnsConfigToJson(this);

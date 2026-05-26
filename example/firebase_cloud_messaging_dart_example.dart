@@ -11,7 +11,7 @@ void main() async {
   // 1. Initialize the Server
   // Option A: Using a service account file directly (Easiest)
   final FirebaseCloudMessagingServer server = FirebaseCloudMessagingServer.fromServiceAccountFile(
-    'service_account.json',
+    'serviceAccountKey.json',
     logger: (FcmLogLevel level, String message, {Object? error, StackTrace? stackTrace}) {
       print('[FCM ${level.name.toUpperCase()}] $message');
       if (error != null) print('  Error: $error');
@@ -21,7 +21,7 @@ void main() async {
   // Option B: Alternatively, using pre-parsed JSON:
   /*
   final credentials = jsonDecode(
-    File('service_account.json').readAsStringSync(),
+    File('serviceAccountKey.json').readAsStringSync(),
   ) as Map<String, dynamic>;
   server = FirebaseCloudMessagingServer(credentials);
   */

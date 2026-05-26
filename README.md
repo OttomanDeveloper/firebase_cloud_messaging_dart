@@ -35,10 +35,25 @@ dependencies:
 
 ### 2. Get credentials
 
-Download your service account JSON from **Firebase Console > Project Settings > Service Accounts > Generate new private key**.
+1. Go to **Firebase Console > Project Settings > Service Accounts > Generate new private key**.
+2. Save the downloaded file as `serviceAccountKey.json` in your **project root** (next to `pubspec.yaml`):
+
+```
+my_app/
+├── lib/
+├── pubspec.yaml
+└── .gitignore
+```
+
+3. Add it to `.gitignore` immediately:
+
+```
+# .gitignore
+serviceAccountKey.json
+```
 
 > [!CAUTION]
-> Add `service-account.json` to `.gitignore`. It grants full admin access to your Firebase project.
+> **Never** commit `serviceAccountKey.json` to version control. It grants full admin access to your Firebase project.
 
 ---
 
@@ -53,17 +68,17 @@ Four ways to create a server instance:
 ```dart
 // From a file path (simplest)
 final server = FirebaseCloudMessagingServer.fromServiceAccountFile(
-  'service-account.json',
+  'serviceAccountKey.json',
 );
 
 // From a File object
 final server = FirebaseCloudMessagingServer.fromServiceAccountFile(
-  File('service-account.json'),
+  File('serviceAccountKey.json'),
 );
 
 // From a JSON string
 final server = FirebaseCloudMessagingServer.fromServiceAccountJson(
-  await File('service-account.json').readAsString(),
+  await File('serviceAccountKey.json').readAsString(),
 );
 
 // From a parsed Map
