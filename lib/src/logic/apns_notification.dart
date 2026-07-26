@@ -1,5 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'json_utils.dart';
+
 part 'apns_notification.g.dart';
 
 /// Typed model for Apple Push Notification Service (APNs) notifications.
@@ -91,7 +93,7 @@ final class ApnsAlert {
   @JsonKey(name: 'loc-args')
   final List<String>? locArgs;
 
-  Map<String, dynamic> toJson() => _$ApnsAlertToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$ApnsAlertToJson(this));
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +178,7 @@ final class FirebaseApnsNotification {
   @JsonKey(name: 'relevance-score')
   final double? relevanceScore;
 
-  Map<String, dynamic> toJson() => _$FirebaseApnsNotificationToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseApnsNotificationToJson(this));
 }
 
 // ---------------------------------------------------------------------------
@@ -202,5 +204,5 @@ final class ApnsFcmOptions {
   /// On iOS this shows as the notification attachment thumbnail.
   final String? image;
 
-  Map<String, dynamic> toJson() => _$ApnsFcmOptionsToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$ApnsFcmOptionsToJson(this));
 }

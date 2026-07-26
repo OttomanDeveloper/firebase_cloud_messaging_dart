@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import 'package:json_annotation/json_annotation.dart';
 
 import 'android_config.dart';
 import 'apns_config.dart';
 import 'fcm_options.dart';
+import 'json_utils.dart';
 import 'notification.dart';
 import 'webpush_config.dart';
 
@@ -87,7 +90,7 @@ final class FirebaseMessage {
   /// Only one of [token], [topic], or [condition] may be set.
   final String? condition;
 
-  Map<String, dynamic> toJson() => _$FirebaseMessageToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseMessageToJson(this));
 
   /// Creates a copy of this [FirebaseMessage] with the specified fields replaced.
   ///
@@ -126,4 +129,20 @@ final class FirebaseMessage {
         'apns: $apns, fcm_options: $fcmOptions, token: $token, '
         'topic: $topic, condition: $condition}';
   }
+
+  /// Value equality over the full serialised payload.
+  ///
+  /// The nested platform configs are plain data holders without their own
+  /// `==`, so comparison goes through [toJson] — the same representation FCM
+  /// receives. Generated `toJson` output is deterministic in field order,
+  /// which makes the encoded form a stable identity for the message.
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is FirebaseMessage &&
+        jsonEncode(other.toJson()) == jsonEncode(toJson());
+  }
+
+  @override
+  int get hashCode => jsonEncode(toJson()).hashCode;
 }

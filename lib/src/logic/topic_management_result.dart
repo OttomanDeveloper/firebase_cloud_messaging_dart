@@ -31,16 +31,24 @@ final class TopicManagementResult {
   });
 
   /// Parses the raw JSON response from the IID batch API.
+  ///
+  /// [statusCode] is the HTTP status of the response, used to describe the
+  /// failure when the body carries no usable error information (for example an
+  /// HTML error page from a proxy).
   factory TopicManagementResult.fromJson(
     Map<String, dynamic> json,
-    List<String> tokens,
-  ) {
+    List<String> tokens, {
+    int? statusCode,
+  }) {
     // The response structure is:
     // { "results": [ {}, {"error": "NOT_FOUND"} ] }
     final dynamic rawResults = json['results'];
 
     if (rawResults is! List) {
-      // If the API failed entirely (e.g., 400 Bad Request with a single error root)
+      // The whole request failed (e.g. 401 with a google.rpc error envelope,
+      // or a non-JSON body). Mark every token as failed with the best error
+      // description available.
+      final String error = _describeError(json['error'], statusCode);
       return TopicManagementResult(
         successCount: 0,
         failureCount: tokens.length,
@@ -48,7 +56,7 @@ final class TopicManagementResult {
             .map((String t) => TopicManagementTokenResult(
                   token: t,
                   successful: false,
-                  error: json['error'] as String? ?? 'UNKNOWN_ERROR',
+                  error: error,
                 ))
             .toList(),
       );
@@ -62,7 +70,9 @@ final class TopicManagementResult {
             token:
                 index < tokens.length ? tokens[index] : 'unknown-token-$index',
             successful: item['error'] == null,
-            error: item['error'] as String?,
+            error: item['error'] == null
+                ? null
+                : _describeError(item['error'], null),
           ),
     ];
 
@@ -77,6 +87,27 @@ final class TopicManagementResult {
       results: mappedResults,
     );
   }
+  /// Renders an `error` field into a stable string.
+  ///
+  /// The Instance ID API returns a bare string per token (`"NOT_FOUND"`), but a
+  /// request-level failure comes back as a `google.rpc` envelope
+  /// (`{"code": 401, "status": "UNAUTHENTICATED", ...}`), and a proxy can
+  /// return no JSON at all. All three shapes are handled here.
+  static String _describeError(Object? error, int? statusCode) {
+    if (error is String && error.isNotEmpty) return error;
+
+    if (error is Map<String, dynamic>) {
+      final Object? status = error['status'];
+      if (status is String && status.isNotEmpty) return status;
+
+      final Object? message = error['message'];
+      if (message is String && message.isNotEmpty) return message;
+    }
+
+    if (statusCode != null) return 'HTTP_$statusCode';
+    return 'UNKNOWN_ERROR';
+  }
+
   /// The total number of tokens successfully processed.
   final int successCount;
 

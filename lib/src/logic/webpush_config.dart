@@ -1,5 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'json_utils.dart';
 import 'webpush_notification.dart';
 
 part 'webpush_config.g.dart';
@@ -44,5 +45,5 @@ final class FirebaseWebpushConfig {
   @JsonKey(name: 'fcm_options')
   final WebpushFcmOptions? fcmOptions;
 
-  Map<String, dynamic> toJson() => _$FirebaseWebpushConfigToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseWebpushConfigToJson(this));
 }

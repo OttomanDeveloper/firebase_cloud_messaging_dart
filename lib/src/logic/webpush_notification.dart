@@ -1,5 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'json_utils.dart';
+
 part 'webpush_notification.g.dart';
 
 /// Typed models for Web Push notifications delivered through FCM.
@@ -59,7 +61,7 @@ final class WebpushAction {
   /// A URL pointing to an icon image to display alongside the action button.
   final String? icon;
 
-  Map<String, dynamic> toJson() => _$WebpushActionToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$WebpushActionToJson(this));
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +149,7 @@ final class FirebaseWebpushNotification {
   /// Arbitrary data payload for the notification (distinct from top-level data).
   final Map<String, dynamic>? data;
 
-  Map<String, dynamic> toJson() => _$FirebaseWebpushNotificationToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseWebpushNotificationToJson(this));
 }
 
 // ---------------------------------------------------------------------------
@@ -171,5 +173,5 @@ final class WebpushFcmOptions {
   @JsonKey(name: 'analytics_label')
   final String? analyticsLabel;
 
-  Map<String, dynamic> toJson() => _$WebpushFcmOptionsToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$WebpushFcmOptionsToJson(this));
 }

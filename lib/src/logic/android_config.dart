@@ -2,6 +2,8 @@ import 'package:json_annotation/json_annotation.dart';
 
 import 'android_notification.dart';
 
+import 'json_utils.dart';
+
 part 'android_config.g.dart';
 
 /// Android-specific configuration for an FCM message.
@@ -83,7 +85,7 @@ final class FirebaseAndroidConfig {
   @JsonKey(name: 'restricted_satellite_ok')
   final bool? restrictedSatelliteOk;
 
-  Map<String, dynamic> toJson() => _$FirebaseAndroidConfigToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseAndroidConfigToJson(this));
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +105,7 @@ final class AndroidFcmOptions {
   @JsonKey(name: 'analytics_label')
   final String? analyticsLabel;
 
-  Map<String, dynamic> toJson() => _$AndroidFcmOptionsToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$AndroidFcmOptionsToJson(this));
 }
 
 // ---------------------------------------------------------------------------

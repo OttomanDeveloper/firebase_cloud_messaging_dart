@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.1.0 (Correctness Fixes)
+
+### Bug Fixes
+
+* **Fix (Critical)**: `FcmError` now reads the authoritative error code from `error.details[]` (the entry typed `google.firebase.fcm.v1.FcmError`) instead of relying solely on the top-level `error.status`. The two do not always agree — a quota failure arrives as `RESOURCE_EXHAUSTED` and an invalid token as `NOT_FOUND`. Previously both fell through to `FcmErrorCode.unknown`, which meant **`QUOTA_EXCEEDED` was never retried** and **`UNREGISTERED` never reached `onRegistrationChange`**, so stale tokens were never cleaned up. `RESOURCE_EXHAUSTED` and `NOT_FOUND` are now also mapped when no details block is present.
+* **Fix (Critical)**: Input validation no longer relies on `assert`. Asserts are stripped from release and AOT builds (`dart compile exe`) — exactly how a server package ships — so malformed requests were silently forwarded to FCM in production. The "exactly one of token/topic/condition" rule, empty token/message lists, the `/topics/` prefix rule, and a missing `project_id` now throw `ArgumentError` in every build mode.
+* **Fix (Critical)**: `ApnsConfig` no longer serialises a `notification` key. `ApnsConfig` has no such field on the wire (it belongs under `payload.aps`), and FCM rejects the whole request with `Invalid JSON payload received. Unknown name "notification"`. This affected every message that set `apns` without a typed `notification`.
+* **Fix**: `toJson()` now omits unset fields instead of emitting them as explicit `null`s, matching what the FCM v1 API expects.
+* **Fix**: `TopicManagementResult.fromJson` no longer throws a `TypeError` when the Instance ID API returns a `google.rpc` error envelope (`{"error": {"code": 401, ...}}`) rather than a per-token error string. Auth and quota failures on `subscribeTokensToTopic` / `unsubscribeTokensFromTopic` now surface as failed results. A non-JSON body (e.g. a proxy error page) is reported as `HTTP_<status>`.
+* **Fix**: A `401` from FCM now triggers one forced token refresh and a replay, instead of being returned to the caller as a permanent failure. The cached token is additionally treated as expired 60 seconds before its stated expiry to absorb clock skew and in-flight time.
+* **Fix**: HTTP requests are now bounded by `requestTimeout` (default 30 seconds). A hung connection previously blocked forever.
+* **Fix**: Transport failures (`SocketException`, timeouts, connection resets) are retried under `retryConfig` instead of being rethrown on the first occurrence.
+* **Fix**: `sendToMultiple` and `sendMessages` no longer open one socket per message. At most `maxConcurrency` (default 50) requests are in flight at a time; result ordering still matches the input.
+* **Fix**: `subscribeTokensToTopic` / `unsubscribeTokensFromTopic` now split lists longer than 1,000 tokens into sequential batches and return one combined result, rather than sending an over-sized request that the API rejects.
+* **Fix**: `FcmError` and `FirebaseMessage` implement value equality, so `ServerResult ==` compares content rather than object identity.
+* **Fix**: Topic management now honours the disposed state and throws a clear `StateError`, matching `send()`.
+
+### New Features
+
+* **Feat**: `requestTimeout` and `maxConcurrency` parameters on every constructor.
+* **Feat**: `obtainCredentials()` is exposed as a `@protected` `@visibleForTesting` seam, allowing the send path to be tested without contacting Google.
+
+### Improvements
+
+* **Test**: Added 43 tests covering the send path, retry and backoff behaviour, 401 recovery, concurrency limits, topic batching, payload serialisation, and argument validation — none of which had coverage before.
+* **Chore**: Added a direct dependency on `meta`.
+
 ## 3.0.2 (FCM v1 API Compliance & Bug Fixes)
 
 ### Bug Fixes

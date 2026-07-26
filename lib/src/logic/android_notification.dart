@@ -1,5 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'json_utils.dart';
+
 part 'android_notification.g.dart';
 
 /// Android-specific notification content for FCM messages.
@@ -155,7 +157,7 @@ final class FirebaseAndroidNotification {
   /// Available on Android 12+ when the app targets API 31+.
   final AndroidNotificationProxy? proxy;
 
-  Map<String, dynamic> toJson() => _$FirebaseAndroidNotificationToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseAndroidNotificationToJson(this));
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +269,7 @@ final class LightSettings {
   @JsonKey(name: 'light_off_duration')
   final String? lightOffDuration;
 
-  Map<String, dynamic> toJson() => _$LightSettingsToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$LightSettingsToJson(this));
 }
 
 // ---------------------------------------------------------------------------
@@ -296,5 +298,5 @@ final class FCMColor {
   /// Alpha (opacity) component (0.0–1.0). `1.0` is fully opaque.
   final double? alpha;
 
-  Map<String, dynamic> toJson() => _$FCMColorToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$FCMColorToJson(this));
 }

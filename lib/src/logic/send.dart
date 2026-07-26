@@ -1,4 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
+
+import 'json_utils.dart';
 import 'message.dart';
 
 part 'send.g.dart';
@@ -43,7 +45,7 @@ final class FirebaseSend {
   /// The message to send. Must not be null when actually sending.
   final FirebaseMessage? message;
 
-  Map<String, dynamic> toJson() => _$FirebaseSendToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseSendToJson(this));
 
   /// Creates a copy of this [FirebaseSend] with the given fields replaced.
   FirebaseSend copyWith({

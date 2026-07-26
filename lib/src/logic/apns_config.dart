@@ -1,6 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
 import 'apns_notification.dart';
+import 'json_utils.dart';
 
 part 'apns_config.g.dart';
 
@@ -84,14 +85,20 @@ final class FirebaseApnsConfig {
     // The typed 'notification' field must be nested inside 'payload.aps'
     // to be valid FCM v1. We remove the top-level 'notification' key
     // and merge it into 'payload'.
+    //
+    // ApnsConfig has no 'notification' member on the wire at all, so the key
+    // is dropped unconditionally — leaving it in place as `null` makes FCM
+    // reject the whole request with "Unknown name".
+    final FirebaseApnsNotification? notification = this.notification;
+    json.remove('notification');
+
     if (notification != null) {
-      json.remove('notification');
       final Map<String, dynamic> payload =
           Map<String, dynamic>.from(this.payload ?? <dynamic, dynamic>{});
-      payload['aps'] = notification!.toJson();
+      payload['aps'] = notification.toJson();
       json['payload'] = payload;
     }
 
-    return json;
+    return pruneNulls(json);
   }
 }

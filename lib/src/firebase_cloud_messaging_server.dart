@@ -5,6 +5,7 @@ import 'package:firebase_cloud_messaging_dart/firebase_cloud_messaging_dart.dart
 import 'package:firebase_cloud_messaging_dart/src/logic/fcm_topic_management.dart';
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 
 /// A server-side client for sending Firebase Cloud Messages via the
 /// FCM HTTP v1 API directly from Dart or Flutter.
@@ -69,31 +70,64 @@ class FirebaseCloudMessagingServer {
   /// [retryConfig] — retry behaviour for retryable FCM errors
   /// (default: 3 retries with exponential back-off).
   ///
+  /// [requestTimeout] — per-request HTTP timeout (default: 30 seconds).
+  ///
+  /// [maxConcurrency] — cap on simultaneous in-flight requests for the
+  /// fan-out methods [sendToMultiple] and [sendMessages] (default: 50).
+  ///
   /// [projectId] — required ONLY if [firebaseServiceCredentials] is `null` (ADC mode).
+  ///
+  /// Throws an [ArgumentError] if the project ID cannot be determined, or if
+  /// [maxConcurrency] / [requestTimeout] are not positive.
   FirebaseCloudMessagingServer(
     this.firebaseServiceCredentials, {
     String? projectId,
     this.cacheAuth = true,
     this.logger = fcmSilentLogger,
     this.retryConfig = const FcmRetryConfig(),
+    this.requestTimeout = const Duration(seconds: 30),
+    this.maxConcurrency = 50,
     this.onRegistrationChange,
     http.Client? httpClient,
   }) : _httpClient = httpClient ?? http.Client() {
+    if (maxConcurrency < 1) {
+      throw ArgumentError.value(
+        maxConcurrency,
+        'maxConcurrency',
+        'must be at least 1',
+      );
+    }
+    if (requestTimeout <= Duration.zero) {
+      throw ArgumentError.value(
+        requestTimeout,
+        'requestTimeout',
+        'must be greater than zero',
+      );
+    }
+
     if (firebaseServiceCredentials != null) {
       // Cache the projectId so we don't re-parse the entire JSON on every send.
       final FirebaseServiceModel model =
           FirebaseServiceModel.fromJson(firebaseServiceCredentials!);
-      _projectId = model.projectID ?? '';
-      assert(
-        _projectId.isNotEmpty,
-        'Service account JSON is missing the "project_id" field.',
-      );
+      final String? parsedProjectId = model.projectID;
+      if (parsedProjectId == null || parsedProjectId.isEmpty) {
+        throw ArgumentError.value(
+          firebaseServiceCredentials,
+          'firebaseServiceCredentials',
+          'Service account JSON is missing the "project_id" field.',
+        );
+      }
+      _projectId = parsedProjectId;
     } else {
-      assert(
-        projectId != null,
-        'Project ID must be provided when using ADC mode.',
-      );
-      _projectId = projectId!;
+      if (projectId == null || projectId.isEmpty) {
+        throw ArgumentError.value(
+          projectId,
+          'projectId',
+          'A project ID is required when no service account is supplied '
+              '(ADC mode).',
+        );
+      }
+      _projectId = projectId;
     }
   }
 
@@ -112,6 +146,8 @@ class FirebaseCloudMessagingServer {
     bool cacheAuth = true,
     FcmLogger? logger,
     FcmRetryConfig retryConfig = const FcmRetryConfig(),
+    Duration requestTimeout = const Duration(seconds: 30),
+    int maxConcurrency = 50,
     FcmRegistrationCallback? onRegistrationChange,
     http.Client? httpClient,
   }) {
@@ -121,6 +157,8 @@ class FirebaseCloudMessagingServer {
       cacheAuth: cacheAuth,
       logger: logger ?? fcmSilentLogger,
       retryConfig: retryConfig,
+      requestTimeout: requestTimeout,
+      maxConcurrency: maxConcurrency,
       onRegistrationChange: onRegistrationChange,
       httpClient: httpClient,
     );
@@ -139,6 +177,8 @@ class FirebaseCloudMessagingServer {
     bool cacheAuth = true,
     FcmLogger? logger,
     FcmRetryConfig retryConfig = const FcmRetryConfig(),
+    Duration requestTimeout = const Duration(seconds: 30),
+    int maxConcurrency = 50,
     FcmRegistrationCallback? onRegistrationChange,
     http.Client? httpClient,
   }) {
@@ -149,6 +189,8 @@ class FirebaseCloudMessagingServer {
       cacheAuth: cacheAuth,
       logger: logger ?? fcmSilentLogger,
       retryConfig: retryConfig,
+      requestTimeout: requestTimeout,
+      maxConcurrency: maxConcurrency,
       onRegistrationChange: onRegistrationChange,
       httpClient: httpClient,
     );
@@ -168,6 +210,8 @@ class FirebaseCloudMessagingServer {
     bool cacheAuth = true,
     FcmLogger? logger,
     FcmRetryConfig retryConfig = const FcmRetryConfig(),
+    Duration requestTimeout = const Duration(seconds: 30),
+    int maxConcurrency = 50,
     FcmRegistrationCallback? onRegistrationChange,
     http.Client? httpClient,
   }) {
@@ -189,6 +233,8 @@ class FirebaseCloudMessagingServer {
       cacheAuth: cacheAuth,
       logger: logger ?? fcmSilentLogger,
       retryConfig: retryConfig,
+      requestTimeout: requestTimeout,
+      maxConcurrency: maxConcurrency,
       onRegistrationChange: onRegistrationChange,
       httpClient: httpClient,
     );
@@ -200,6 +246,14 @@ class FirebaseCloudMessagingServer {
   /// The base URL path for the FCM HTTP v1 API.
   static const String _fcmApiEndpoint =
       'https://fcm.googleapis.com/v1/projects';
+
+  /// Safety margin applied when deciding whether the cached access token is
+  /// still usable. Covers clock skew between this host and Google, plus the
+  /// time the request itself spends in flight.
+  static const Duration _tokenExpiryMargin = Duration(seconds: 60);
+
+  /// Maximum number of tokens the Instance ID batch endpoints accept per call.
+  static const int _topicBatchLimit = 1000;
 
   // ---------------------------------------------------------------------------
   // Constructor & fields
@@ -227,6 +281,21 @@ class FirebaseCloudMessagingServer {
   ///
   /// Defaults to [FcmRetryConfig] (3 retries, exponential back-off).
   final FcmRetryConfig retryConfig;
+
+  /// Maximum time to wait for a single HTTP response before the attempt is
+  /// abandoned. A timed-out attempt is retried like any other transport
+  /// failure, subject to [retryConfig].
+  ///
+  /// Defaults to 30 seconds.
+  final Duration requestTimeout;
+
+  /// Upper bound on simultaneously in-flight requests in [sendToMultiple] and
+  /// [sendMessages].
+  ///
+  /// Without a cap, a large token list opens one socket per token, which
+  /// exhausts file descriptors and triggers `QUOTA_EXCEEDED` from FCM.
+  /// Defaults to 50.
+  final int maxConcurrency;
 
   /// Optional callback triggered when a token registration becomes invalid.
   final FcmRegistrationCallback? onRegistrationChange;
@@ -273,9 +342,11 @@ class FirebaseCloudMessagingServer {
   /// Sends the same notification to [tokens] in **parallel** and returns an
   /// aggregated [BatchResult].
   ///
-  /// Internally this creates one [FirebaseSend] per token and fires all
-  /// requests concurrently with [Future.wait]. Inspect [BatchResult.failedResults]
-  /// to detect stale tokens (e.g., `FcmErrorCode.unregistered`).
+  /// Internally this creates one [FirebaseSend] per token and sends them
+  /// concurrently, with at most [maxConcurrency] requests in flight at a time.
+  /// [BatchResult.results] preserves the order of [tokens]. Inspect
+  /// [BatchResult.failedResults] to detect stale tokens
+  /// (e.g., `FcmErrorCode.unregistered`).
   ///
   /// ```dart
   /// final batch = await server.sendToMultiple(
@@ -291,28 +362,28 @@ class FirebaseCloudMessagingServer {
     required FirebaseMessage messageTemplate,
     bool validateOnly = false,
   }) async {
-    assert(tokens.isNotEmpty, 'tokens list must not be empty');
+    if (tokens.isEmpty) {
+      throw ArgumentError.value(tokens, 'tokens', 'must not be empty');
+    }
 
     logger(
         FcmLogLevel.info, 'sendToMultiple: sending to ${tokens.length} tokens');
 
-    // Fan out all requests in parallel with Record-based intermediate results.
-    final List<Future<(String, ServerResult)>> futures =
-        tokens.map((String token) async {
-      final ServerResult serverResult = await _send(
-        FirebaseSend(
-          validateOnly: validateOnly,
-          message: messageTemplate.copyWith(token: token),
-        ),
-      );
-      return (token, serverResult);
-    }).toList();
-
-    final List<(String, ServerResult)> records = await Future.wait(futures);
-    final List<TokenResult> results = records
-        .map(((String, ServerResult) r) =>
-            TokenResult(token: r.$1, serverResult: r.$2))
-        .toList();
+    // Fan out with a bounded number of simultaneous requests, preserving the
+    // order of the input tokens in the results.
+    final List<TokenResult> results = await _runBounded<TokenResult>(
+      tokens.length,
+      (int index) async {
+        final String token = tokens[index];
+        final ServerResult serverResult = await _send(
+          FirebaseSend(
+            validateOnly: validateOnly,
+            message: messageTemplate.copyWith(token: token),
+          ),
+        );
+        return TokenResult(token: token, serverResult: serverResult);
+      },
+    );
 
     final BatchResult batch = BatchResult(results: results);
 
@@ -389,7 +460,8 @@ class FirebaseCloudMessagingServer {
     return _send(sendObject.copyWith(validateOnly: true));
   }
 
-  /// Sends multiple pre-built [FirebaseSend] objects in **parallel**.
+  /// Sends multiple pre-built [FirebaseSend] objects in **parallel**, with at
+  /// most [maxConcurrency] requests in flight at a time.
   ///
   /// Use this when each message is distinct (different payloads, different
   /// targets). For sending the same message to many tokens, prefer
@@ -399,15 +471,23 @@ class FirebaseCloudMessagingServer {
   Future<List<ServerResult>> sendMessages(
     List<FirebaseSend> sendObjects,
   ) async {
-    assert(sendObjects.isNotEmpty, 'sendObjects list must not be empty');
+    if (sendObjects.isEmpty) {
+      throw ArgumentError.value(
+        sendObjects,
+        'sendObjects',
+        'must not be empty',
+      );
+    }
 
     logger(
       FcmLogLevel.info,
       'sendMessages: sending ${sendObjects.length} messages',
     );
 
-    final List<ServerResult> results =
-        await Future.wait(sendObjects.map(_send));
+    final List<ServerResult> results = await _runBounded<ServerResult>(
+      sendObjects.length,
+      (int index) => _send(sendObjects[index]),
+    );
 
     final int successCount =
         results.where((ServerResult r) => r.successful).length;
@@ -435,6 +515,24 @@ class FirebaseCloudMessagingServer {
   Future<AccessCredentials> performAuth() => _performAuth();
 
   Future<AccessCredentials> _performAuth() async {
+    _accessCredentials = await obtainCredentials();
+
+    logger(
+      FcmLogLevel.debug,
+      'Access token obtained. Expires: ${_accessCredentials!.accessToken.expiry}',
+    );
+
+    return _accessCredentials!;
+  }
+
+  /// Obtains OAuth 2.0 credentials scoped to FCM, either from the configured
+  /// service account or from Application Default Credentials.
+  ///
+  /// Override in a subclass to supply credentials without contacting Google —
+  /// this is the seam that makes the send path testable.
+  @protected
+  @visibleForTesting
+  Future<AccessCredentials> obtainCredentials() async {
     logger(FcmLogLevel.debug, 'Requesting new OAuth access token from Google');
 
     const List<String> scopes = <String>[
@@ -446,31 +544,24 @@ class FirebaseCloudMessagingServer {
           ServiceAccountCredentials.fromJson(firebaseServiceCredentials!);
 
       // Use the shared client for auth.
-      _accessCredentials = await obtainAccessCredentialsViaServiceAccount(
+      return obtainAccessCredentialsViaServiceAccount(
         accountCredentials,
         scopes,
         _httpClient,
       );
-    } else {
-      // Application Default Credentials (ADC)
-      // clientViaApplicationDefaultCredentials creates its own AuthClient
-      // wrapping a default inner HTTP client, which we then close after grabbing
-      // the token, avoiding resource leaks.
-      final AutoRefreshingAuthClient authClient =
-          await clientViaApplicationDefaultCredentials(scopes: scopes);
-      try {
-        _accessCredentials = authClient.credentials;
-      } finally {
-        authClient.close();
-      }
     }
 
-    logger(
-      FcmLogLevel.debug,
-      'Access token obtained. Expires: ${_accessCredentials!.accessToken.expiry}',
-    );
-
-    return _accessCredentials!;
+    // Application Default Credentials (ADC)
+    // clientViaApplicationDefaultCredentials creates its own AuthClient
+    // wrapping a default inner HTTP client, which we then close after grabbing
+    // the token, avoiding resource leaks.
+    final AutoRefreshingAuthClient authClient =
+        await clientViaApplicationDefaultCredentials(scopes: scopes);
+    try {
+      return authClient.credentials;
+    } finally {
+      authClient.close();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -485,18 +576,30 @@ class FirebaseCloudMessagingServer {
         'Create a new instance to continue sending messages.',
       );
     }
-    assert(
-      sendObject.message != null,
-      'FirebaseSend.message must not be null.',
-    );
-    assert(
-      <String?>[
-        sendObject.message?.token,
-        sendObject.message?.topic,
-        sendObject.message?.condition,
-      ].where((String? v) => v != null).length == 1,
-      'FirebaseMessage must have exactly one of token, topic, or condition set.',
-    );
+    // Validated with real throws rather than asserts: asserts are stripped
+    // from release/AOT builds, which is exactly how this package is deployed.
+    final FirebaseMessage? message = sendObject.message;
+    if (message == null) {
+      throw ArgumentError.value(
+        sendObject,
+        'sendObject',
+        'FirebaseSend.message must not be null.',
+      );
+    }
+
+    final int targetCount = <String?>[
+      message.token,
+      message.topic,
+      message.condition,
+    ].where((String? v) => v != null).length;
+    if (targetCount != 1) {
+      throw ArgumentError.value(
+        message,
+        'sendObject.message',
+        'must have exactly one of token, topic, or condition set '
+            '(found $targetCount).',
+      );
+    }
 
     // Ensure we have a valid, non-expired access token.
     await _ensureValidToken();
@@ -505,9 +608,14 @@ class FirebaseCloudMessagingServer {
   }
 
   /// Performs the actual HTTP POST, retrying on retryable failures.
+  ///
+  /// [authRefreshed] tracks whether a forced token refresh has already been
+  /// attempted for this request, so a stale-credential 401 is retried exactly
+  /// once without consuming the [retryConfig] budget.
   Future<ServerResult> _sendWithRetry(
     FirebaseSend sendObject, {
     required int attempt,
+    bool authRefreshed = false,
   }) async {
     final Uri url = Uri.parse(
       '$_fcmApiEndpoint/$_projectId/messages:send',
@@ -525,15 +633,52 @@ class FirebaseCloudMessagingServer {
 
     final http.Response response;
     try {
-      response = await _httpClient.post(
-        url,
-        headers: headers,
-        body: json.encode(sendObject.toJson()),
-      );
-    } catch (e, st) {
+      response = await _httpClient
+          .post(
+            url,
+            headers: headers,
+            body: json.encode(sendObject.toJson()),
+          )
+          .timeout(requestTimeout);
+    } on Exception catch (e, st) {
+      // Connection resets, DNS failures and timeouts are transient: spend a
+      // retry on them rather than surfacing them to the caller immediately.
+      if (attempt < retryConfig.maxRetries) {
+        final Duration delay = retryConfig.delayForAttempt(attempt);
+        logger(
+          FcmLogLevel.warning,
+          'HTTP request failed (${e.runtimeType}) — retrying in '
+          '${delay.inMilliseconds}ms '
+          '(attempt ${attempt + 1}/${retryConfig.maxRetries})',
+          error: e,
+        );
+        await Future<void>.delayed(delay);
+        await _ensureValidToken();
+        return _sendWithRetry(
+          sendObject,
+          attempt: attempt + 1,
+          authRefreshed: authRefreshed,
+        );
+      }
+
       logger(FcmLogLevel.error, 'HTTP request failed',
           error: e, stackTrace: st);
       rethrow;
+    }
+
+    // A 401 after a locally-valid token means the credential was revoked or
+    // expired early. Force one refresh and replay before giving up.
+    if (response.statusCode == 401 && !authRefreshed) {
+      logger(
+        FcmLogLevel.warning,
+        'FCM returned 401 — refreshing access token and retrying once',
+      );
+      await _ensureValidToken(forceRefresh: true);
+      return _sendWithRetry(
+        sendObject,
+        attempt: attempt,
+        authRefreshed: true,
+      );
     }
 
     // Use pattern destructuring to handle status and body parsing.
@@ -603,10 +748,42 @@ class FirebaseCloudMessagingServer {
       await Future<void>.delayed(delay);
       // Refresh token before retry in case it expired during the wait.
       await _ensureValidToken();
-      return _sendWithRetry(sendObject, attempt: attempt + 1);
+      return _sendWithRetry(
+        sendObject,
+        attempt: attempt + 1,
+        authRefreshed: authRefreshed,
+      );
     }
 
     return result;
+  }
+
+  /// Runs [task] for every index in `0..count-1`, keeping at most
+  /// [maxConcurrency] futures in flight, and returns the results in index
+  /// order.
+  Future<List<T>> _runBounded<T>(
+    int count,
+    Future<T> Function(int index) task,
+  ) async {
+    final List<T?> results = List<T?>.filled(count, null);
+    int cursor = 0;
+
+    // Each worker pulls the next index off the shared cursor. Dart's single
+    // isolate event loop makes the read-then-increment atomic.
+    Future<void> worker() async {
+      while (true) {
+        final int index = cursor++;
+        if (index >= count) return;
+        results[index] = await task(index);
+      }
+    }
+
+    final int workerCount = count < maxConcurrency ? count : maxConcurrency;
+    await Future.wait(<Future<void>>[
+      for (int i = 0; i < workerCount; i++) worker(),
+    ]);
+
+    return results.cast<T>();
   }
 
   // ---------------------------------------------------------------------------
@@ -615,8 +792,9 @@ class FirebaseCloudMessagingServer {
 
   /// Subscribes a list of registration [tokens] to an FCM [topic].
   ///
-  /// This utilizes the Firebase Instance ID API `batchAdd` endpoint.
-  /// You can subscribe up to 1,000 tokens in a single request.
+  /// This utilizes the Firebase Instance ID API `batchAdd` endpoint, which
+  /// accepts 1,000 tokens per call — longer lists are split into sequential
+  /// batches automatically and reported as one combined result.
   /// The [topic] should not include the `"/topics/"` prefix.
   Future<TopicManagementResult> subscribeTokensToTopic({
     required String topic,
@@ -631,8 +809,9 @@ class FirebaseCloudMessagingServer {
 
   /// Unsubscribes a list of registration [tokens] from an FCM [topic].
   ///
-  /// This utilizes the Firebase Instance ID API `batchRemove` endpoint.
-  /// You can unsubscribe up to 1,000 tokens in a single request.
+  /// This utilizes the Firebase Instance ID API `batchRemove` endpoint, which
+  /// accepts 1,000 tokens per call — longer lists are split into sequential
+  /// batches automatically and reported as one combined result.
   /// The [topic] should not include the `"/topics/"` prefix.
   Future<TopicManagementResult> unsubscribeTokensFromTopic({
     required String topic,
@@ -652,25 +831,63 @@ class FirebaseCloudMessagingServer {
     required List<String> tokens,
     required bool isSubscription,
   }) async {
-    assert(
-      tokens.isNotEmpty && tokens.length <= 1000,
-      'Topic management supports between 1 and 1000 tokens per request.',
-    );
-    assert(
-      !topic.contains('/'),
-      'Topic string should not contain the `/topics/` prefix — simply provide the name (e.g. "news").',
-    );
+    if (_disposed) {
+      throw StateError(
+        'FirebaseCloudMessagingServer has been disposed. '
+        'Create a new instance to continue managing topics.',
+      );
+    }
+    if (tokens.isEmpty) {
+      throw ArgumentError.value(tokens, 'tokens', 'must not be empty');
+    }
+    if (topic.isEmpty || topic.contains('/')) {
+      throw ArgumentError.value(
+        topic,
+        'topic',
+        'must be a bare topic name without the "/topics/" prefix '
+            '(e.g. "news").',
+      );
+    }
 
     // Topic management uses the exact same OAuth 2.0 access token as message delivery.
     await _ensureValidToken();
 
-    return FcmTopicManagement.performBatchOperation(
-      topic: topic,
-      tokens: tokens,
-      accessToken: _accessCredentials!.accessToken.data,
-      client: _httpClient,
-      isSubscription: isSubscription,
-      logger: logger,
+    // The IID endpoints cap each call at 1000 tokens, so split longer lists
+    // into sequential batches and stitch the results back together in order.
+    final List<TopicManagementTokenResult> allResults =
+        <TopicManagementTokenResult>[];
+
+    for (int start = 0; start < tokens.length; start += _topicBatchLimit) {
+      final int end = start + _topicBatchLimit < tokens.length
+          ? start + _topicBatchLimit
+          : tokens.length;
+      final List<String> chunk = tokens.sublist(start, end);
+
+      // Re-check the token between batches: a long run can outlive it.
+      await _ensureValidToken();
+
+      final TopicManagementResult chunkResult =
+          await FcmTopicManagement.performBatchOperation(
+        topic: topic,
+        tokens: chunk,
+        accessToken: _accessCredentials!.accessToken.data,
+        client: _httpClient,
+        isSubscription: isSubscription,
+        logger: logger,
+        timeout: requestTimeout,
+      );
+
+      allResults.addAll(chunkResult.results);
+    }
+
+    final int successCount = allResults
+        .where((TopicManagementTokenResult r) => r.successful)
+        .length;
+
+    return TopicManagementResult(
+      successCount: successCount,
+      failureCount: allResults.length - successCount,
+      results: allResults,
     );
   }
 
@@ -679,13 +896,20 @@ class FirebaseCloudMessagingServer {
   // ---------------------------------------------------------------------------
 
   /// Ensures [_accessCredentials] is populated and non-expired.
-  Future<void> _ensureValidToken() async {
+  ///
+  /// A token is treated as expired [_tokenExpiryMargin] before its stated
+  /// expiry, so a token that would lapse mid-flight is replaced up front
+  /// instead of producing a 401.
+  Future<void> _ensureValidToken({bool forceRefresh = false}) async {
     final bool hasCredentials = _accessCredentials != null;
     final bool isExpired = hasCredentials &&
-        DateTime.now().isAfter(_accessCredentials!.accessToken.expiry);
-    final bool forceRefresh = !cacheAuth;
+        DateTime.now()
+            .toUtc()
+            .add(_tokenExpiryMargin)
+            .isAfter(_accessCredentials!.accessToken.expiry);
+    final bool mustRefresh = forceRefresh || !cacheAuth;
 
-    if (!hasCredentials || isExpired || forceRefresh) {
+    if (!hasCredentials || isExpired || mustRefresh) {
       // If an auth request is already in progress, wait for it.
       if (_authFuture != null) {
         await _authFuture;

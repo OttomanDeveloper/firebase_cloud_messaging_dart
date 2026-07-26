@@ -31,6 +31,7 @@ final class FcmTopicManagement {
   /// [accessToken] — a valid OAuth 2.0 access token with FCM scopes.
   /// [client] — the HTTP client to use for the request.
   /// [isSubscription] — true to subscribe, false to unsubscribe.
+  /// [timeout] — maximum time to wait for the HTTP response.
   static Future<TopicManagementResult> performBatchOperation({
     required String topic,
     required List<String> tokens,
@@ -38,6 +39,7 @@ final class FcmTopicManagement {
     required http.Client client,
     required bool isSubscription,
     FcmLogger? logger,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     final String action = isSubscription ? 'batchAdd' : 'batchRemove';
     final Uri url = Uri.parse(
@@ -62,7 +64,9 @@ final class FcmTopicManagement {
       'Topic Management: $action for ${tokens.length} tokens on topic: $topic',
     );
 
-    final http.Response response = await client.post(url, headers: headers, body: body);
+    final http.Response response = await client
+        .post(url, headers: headers, body: body)
+        .timeout(timeout);
 
     Map<String, dynamic> bodyMap;
     try {
@@ -72,6 +76,18 @@ final class FcmTopicManagement {
       bodyMap = <String, dynamic>{};
     }
 
-    return TopicManagementResult.fromJson(bodyMap, tokens);
+    if (response.statusCode != 200) {
+      logger?.call(
+        FcmLogLevel.warning,
+        'Topic Management: $action failed [${response.statusCode}] '
+        'on topic: $topic',
+      );
+    }
+
+    return TopicManagementResult.fromJson(
+      bodyMap,
+      tokens,
+      statusCode: response.statusCode,
+    );
   }
 }

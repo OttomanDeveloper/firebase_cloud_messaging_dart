@@ -30,7 +30,7 @@ A pure Dart library for sending Firebase Cloud Messages and managing topics via 
 
 ```yaml
 dependencies:
-  firebase_cloud_messaging_dart: ^3.0.2
+  firebase_cloud_messaging_dart: ^3.1.0
 ```
 
 ### 2. Get credentials
@@ -98,8 +98,12 @@ All constructors accept these optional parameters:
 | `cacheAuth` | `bool` | `true` | Reuse OAuth token until it expires (~1 hour) |
 | `logger` | `FcmLogger` | `fcmSilentLogger` | Logging callback |
 | `retryConfig` | `FcmRetryConfig` | 3 retries, 1s initial delay | Retry behavior for transient errors |
+| `requestTimeout` | `Duration` | 30s | Per-request HTTP timeout; a timeout is retried like any transport failure |
+| `maxConcurrency` | `int` | `50` | Cap on simultaneous requests in `sendToMultiple` / `sendMessages` |
 | `onRegistrationChange` | `FcmRegistrationCallback?` | `null` | Fires when a token is confirmed active or found unregistered |
 | `httpClient` | `http.Client?` | `null` | Custom HTTP client (useful for testing) |
+
+Invalid arguments throw `ArgumentError` — including a message that does not set exactly one of `token`, `topic`, or `condition`, an empty token list, or a topic name carrying the `/topics/` prefix.
 
 ---
 
@@ -131,7 +135,7 @@ switch (result) {
 
 ### Multiple tokens (same message, parallel)
 
-Equivalent to the Admin SDK's `sendEachForMulticast`. Fans out in parallel via `Future.wait`.
+Equivalent to the Admin SDK's `sendEachForMulticast`. Fans out in parallel, with at most `maxConcurrency` requests in flight at a time. `batch.results` preserves the order of the input tokens.
 
 ```dart
 final batch = await server.sendToMultiple(
@@ -155,7 +159,7 @@ for (final res in batch.failedResults) {
 
 ### Multiple distinct messages (parallel)
 
-Equivalent to the Admin SDK's `sendEach`. Each message can have a different target and payload.
+Equivalent to the Admin SDK's `sendEach`. Each message can have a different target and payload. Requests are capped at `maxConcurrency` in flight, and results come back in input order.
 
 ```dart
 final results = await server.sendMessages([
@@ -223,7 +227,7 @@ if (!result.successful) {
 
 ## Topic Management
 
-Subscribe and unsubscribe tokens using the Firebase Instance ID API (up to 1,000 tokens per call).
+Subscribe and unsubscribe tokens using the Firebase Instance ID API. The endpoint accepts 1,000 tokens per call — longer lists are split into sequential batches automatically and returned as one combined result.
 
 ```dart
 // Subscribe
@@ -419,6 +423,10 @@ switch (result) {
 | `thirdPartyAuthError` | 401 | No | APNs cert or web push auth key invalid |
 | `unknown` | — | No | Unrecognized error code |
 
+The code is read from the `google.firebase.fcm.v1.FcmError` entry in `error.details[]`, falling back to the top-level `error.status` when no such entry is present. A bare `PERMISSION_DENIED` or `UNAUTHENTICATED` status stays `unknown` on purpose: those are equally consistent with a service-account misconfiguration, and treating them as token failures would wipe healthy tokens from your database.
+
+An expired or revoked access token (HTTP 401) is handled internally — the token is refreshed and the request replayed once before any result is returned.
+
 ### Token Registration Callback
 
 Automatically detect invalid tokens without checking every result:
@@ -444,7 +452,7 @@ The callback only fires `unregistered` for permanent failures (`UNREGISTERED`, `
 
 ## Retry Configuration
 
-Retryable errors (`QUOTA_EXCEEDED`, `UNAVAILABLE`, `INTERNAL`) are automatically retried with exponential backoff.
+Retryable errors (`QUOTA_EXCEEDED`, `UNAVAILABLE`, `INTERNAL`) and transport failures (connection resets, DNS errors, request timeouts) are automatically retried with exponential backoff. A `Retry-After` header, when present, takes precedence over the computed delay.
 
 ```dart
 final server = FirebaseCloudMessagingServer(

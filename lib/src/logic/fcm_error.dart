@@ -51,10 +51,22 @@ enum FcmErrorCode {
 ///   "error": {
 ///     "code": 400,
 ///     "message": "The registration token is not a valid FCM registration token",
-///     "status": "INVALID_ARGUMENT"
+///     "status": "INVALID_ARGUMENT",
+///     "details": [
+///       {
+///         "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+///         "errorCode": "INVALID_ARGUMENT"
+///       }
+///     ]
 ///   }
 /// }
 /// ```
+///
+/// The authoritative FCM code lives in the `details` entry typed as
+/// `google.firebase.fcm.v1.FcmError`. The top-level `status` is a generic
+/// `google.rpc.Code` name which does not always match — a quota failure, for
+/// example, arrives as `RESOURCE_EXHAUSTED`. [errorCode] prefers the `details`
+/// entry and falls back to `status`.
 final class FcmError {
 
   const FcmError({
@@ -92,11 +104,17 @@ final class FcmError {
     final String msg = (errorMap['message'] as String?) ?? 'Unknown FCM error';
     final String? status = errorMap['status'] as String?;
 
+    // Prefer the typed FcmError detail — it carries the real FCM code.
+    // Fall back to the generic google.rpc status when no detail is present.
+    final String? detailCode = _extractDetailErrorCode(errorMap['details']);
+
     return FcmError(
       code: httpCode,
       message: msg,
       status: status,
-      errorCode: _parseErrorCode(status),
+      errorCode: detailCode != null
+          ? _parseErrorCode(detailCode)
+          : _parseStatusCode(status),
     );
   }
 
@@ -104,15 +122,64 @@ final class FcmError {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  /// Maps a raw FCM status string to a typed [FcmErrorCode].
-  static FcmErrorCode _parseErrorCode(String? status) => switch (status) {
+  /// Pulls `errorCode` out of the `details` entry whose `@type` is
+  /// `type.googleapis.com/google.firebase.fcm.v1.FcmError`.
+  ///
+  /// Returns `null` when the array is absent, malformed, or carries only
+  /// other detail types (e.g. `google.rpc.BadRequest`).
+  static String? _extractDetailErrorCode(Object? details) {
+    if (details is! List) return null;
+
+    for (final Object? detail in details) {
+      if (detail is! Map<String, dynamic>) continue;
+
+      final Object? type = detail['@type'];
+      if (type is! String ||
+          !type.endsWith('google.firebase.fcm.v1.FcmError')) {
+        continue;
+      }
+
+      final Object? errorCode = detail['errorCode'];
+      if (errorCode is String) return errorCode;
+    }
+    return null;
+  }
+
+  /// Maps an authoritative FCM error code string to a typed [FcmErrorCode].
+  static FcmErrorCode _parseErrorCode(String code) => switch (code) {
         'UNREGISTERED' => FcmErrorCode.unregistered,
         'SENDER_ID_MISMATCH' => FcmErrorCode.senderIdMismatch,
         'INVALID_ARGUMENT' => FcmErrorCode.invalidArgument,
         'QUOTA_EXCEEDED' => FcmErrorCode.quotaExceeded,
         'UNAVAILABLE' => FcmErrorCode.unavailable,
         'INTERNAL' => FcmErrorCode.internal,
-        'THIRD_PARTY_AUTH_ERROR' => FcmErrorCode.thirdPartyAuthError,
+        'THIRD_PARTY_AUTH_ERROR' ||
+        'APNS_AUTH_ERROR' =>
+          FcmErrorCode.thirdPartyAuthError,
+        _ => FcmErrorCode.unknown,
+      };
+
+  /// Fallback mapping from the generic `google.rpc.Code` name in `status`.
+  ///
+  /// Only unambiguous mappings are applied. `PERMISSION_DENIED` and
+  /// `UNAUTHENTICATED` are deliberately left as [FcmErrorCode.unknown]: they
+  /// are equally consistent with a service-account/IAM misconfiguration, and
+  /// mapping them to a token-invalidating code would make
+  /// `onRegistrationChange` delete every token in the caller's database on a
+  /// credential problem.
+  static FcmErrorCode _parseStatusCode(String? status) => switch (status) {
+        // On messages:send a 404 can only refer to the target registration.
+        'UNREGISTERED' || 'NOT_FOUND' => FcmErrorCode.unregistered,
+        'SENDER_ID_MISMATCH' => FcmErrorCode.senderIdMismatch,
+        'INVALID_ARGUMENT' => FcmErrorCode.invalidArgument,
+        'QUOTA_EXCEEDED' ||
+        'RESOURCE_EXHAUSTED' =>
+          FcmErrorCode.quotaExceeded,
+        'UNAVAILABLE' => FcmErrorCode.unavailable,
+        'INTERNAL' => FcmErrorCode.internal,
+        'THIRD_PARTY_AUTH_ERROR' ||
+        'APNS_AUTH_ERROR' =>
+          FcmErrorCode.thirdPartyAuthError,
         _ => FcmErrorCode.unknown,
       };
 
@@ -132,4 +199,17 @@ final class FcmError {
   @override
   String toString() =>
       'FcmError{code: $code, status: $status, errorCode: $errorCode, message: $message}';
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is FcmError &&
+        other.code == code &&
+        other.message == message &&
+        other.status == status &&
+        other.errorCode == errorCode;
+  }
+
+  @override
+  int get hashCode => Object.hash(code, message, status, errorCode);
 }

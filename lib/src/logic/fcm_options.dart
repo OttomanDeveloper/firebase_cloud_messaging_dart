@@ -1,5 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'json_utils.dart';
+
 part 'fcm_options.g.dart';
 
 /// Cross-platform FCM options that apply regardless of the target channel
@@ -21,5 +23,5 @@ final class FirebaseFcmOptions {
   @JsonKey(name: 'analytics_label')
   final String? analyticsLabel;
 
-  Map<String, dynamic> toJson() => _$FirebaseFcmOptionsToJson(this);
+  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseFcmOptionsToJson(this));
 }
