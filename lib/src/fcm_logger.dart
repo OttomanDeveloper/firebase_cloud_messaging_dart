@@ -42,12 +42,13 @@ enum FcmLogLevel {
 ///   },
 /// );
 /// ```
-typedef FcmLogger = void Function(
-  FcmLogLevel level,
-  String message, {
-  Object? error,
-  StackTrace? stackTrace,
-});
+typedef FcmLogger =
+    void Function(
+      FcmLogLevel level,
+      String message, {
+      Object? error,
+      StackTrace? stackTrace,
+    });
 
 // ---------------------------------------------------------------------------
 // Registration Callback
@@ -68,10 +69,8 @@ enum FcmRegistrationStatus {
 /// This is highly recommended for keeping your device database synchronized.
 /// If you receive an [FcmRegistrationStatus.unregistered], you should delete
 /// the [token] from your persistent storage.
-typedef FcmRegistrationCallback = void Function(
-  String token,
-  FcmRegistrationStatus status,
-);
+typedef FcmRegistrationCallback =
+    void Function(String token, FcmRegistrationStatus status);
 
 // ---------------------------------------------------------------------------
 // No-op default logger (used internally when user does not supply one)

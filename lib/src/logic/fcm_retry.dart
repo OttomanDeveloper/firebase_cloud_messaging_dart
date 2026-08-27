@@ -1,56 +1,146 @@
-// Retry configuration for FCM send operations.
-//
-// Pass a [FcmRetryConfig] to [FirebaseCloudMessagingServer] to enable
-// automatic exponential back-off for retryable FCM errors such as
-// `QUOTA_EXCEEDED` and `UNAVAILABLE`.
-//
-// Example:
-// ```dart
-// final server = FirebaseCloudMessagingServer(
-//   credentials,
-//   retryConfig: FcmRetryConfig(maxRetries: 3, initialDelay: Duration(seconds: 1)),
-// );
-// ```
+import 'dart:math';
 
-// ---------------------------------------------------------------------------
-// Retry configuration
-// ---------------------------------------------------------------------------
-
-/// Controls how [FirebaseCloudMessagingServer] retries failed send requests.
+/// Controls retry behavior for FCM transient failures.
+///
+/// FCM guidance: https://firebase.google.com/docs/cloud-messaging/error-codes
+/// Retry-After grammar: https://www.rfc-editor.org/rfc/rfc9110.html#field.retry-after
 final class FcmRetryConfig {
-
   const FcmRetryConfig({
     this.maxRetries = 3,
     this.initialDelay = const Duration(seconds: 1),
     this.maxDelay = const Duration(seconds: 30),
-  }) : assert(maxRetries >= 0, 'maxRetries must be non-negative');
-  /// Maximum number of retry attempts after the first failure.
-  ///
-  /// Set to `0` to disable retries entirely. Defaults to `3`.
+    this.quotaInitialDelay = const Duration(minutes: 1),
+    this.quotaMaxDelay = const Duration(minutes: 10),
+    this.jitter = true,
+  }) : assert(maxRetries >= 0);
+
+  /// Number of retries after the initial attempt.
   final int maxRetries;
 
-  /// Delay before the **first** retry. Each subsequent retry doubles this
-  /// value (exponential back-off). Defaults to 1 second.
+  /// Generic transient-error delay before the first retry.
   final Duration initialDelay;
 
-  /// Hard cap on the delay between retries regardless of how many retries
-  /// have been attempted. Defaults to 30 seconds.
+  /// Maximum generic transient retry delay.
   final Duration maxDelay;
 
-  /// A convenient preset that disables all retry behaviour.
-  static const FcmRetryConfig none = FcmRetryConfig(maxRetries: 0);
+  /// Minimum initial delay for quota errors; FCM recommends at least one minute.
+  /// Reference: https://firebase.google.com/docs/cloud-messaging/error-codes#quota_exceeded
+  final Duration quotaInitialDelay;
 
-  /// Calculates the delay for the given [attempt] (0-indexed) using
-  /// exponential back-off capped at [maxDelay].
-  Duration delayForAttempt(int attempt) {
-    // 2^attempt * initialDelay, bounded by maxDelay
-    final int multiplier = 1 << attempt; // 2^attempt
-    final int rawMs = initialDelay.inMilliseconds * multiplier;
-    final int cappedMs = rawMs.clamp(0, maxDelay.inMilliseconds);
-    return Duration(milliseconds: cappedMs);
+  /// Maximum quota retry delay.
+  final Duration quotaMaxDelay;
+
+  /// Whether concurrent retries receive equal jitter by default.
+  /// FCM recommends jitter when retrying multiple messages.
+  final bool jitter;
+
+  /// A preset that disables retries.
+  static const FcmRetryConfig none = FcmRetryConfig(
+    maxRetries: 0,
+    jitter: false,
+  );
+
+  /// Validates values with runtime exceptions, including in release builds.
+  void validate() {
+    if (maxRetries < 0) {
+      throw ArgumentError.value(
+        maxRetries,
+        'maxRetries',
+        'must be non-negative',
+      );
+    }
+    if (initialDelay < Duration.zero) {
+      throw ArgumentError.value(
+        initialDelay,
+        'initialDelay',
+        'must be non-negative',
+      );
+    }
+    if (maxDelay < Duration.zero) {
+      throw ArgumentError.value(maxDelay, 'maxDelay', 'must be non-negative');
+    }
+    if (quotaInitialDelay < Duration.zero) {
+      throw ArgumentError.value(
+        quotaInitialDelay,
+        'quotaInitialDelay',
+        'must be non-negative',
+      );
+    }
+    if (quotaMaxDelay < Duration.zero) {
+      throw ArgumentError.value(
+        quotaMaxDelay,
+        'quotaMaxDelay',
+        'must be non-negative',
+      );
+    }
+  }
+
+  /// Calculates generic exponential backoff for a zero-indexed attempt.
+  Duration delayForAttempt(
+    int attempt, {
+    Random? random,
+    bool applyJitter = false,
+  }) {
+    validate();
+    return _calculate(
+      attempt,
+      initialDelay,
+      maxDelay,
+      random: random,
+      applyJitter: applyJitter && jitter,
+    );
+  }
+
+  /// Calculates quota-safe exponential backoff for a zero-indexed attempt.
+  Duration quotaDelayForAttempt(
+    int attempt, {
+    Random? random,
+    bool applyJitter = false,
+  }) {
+    validate();
+    final Duration base = _calculate(
+      attempt,
+      quotaInitialDelay,
+      quotaMaxDelay,
+      random: random,
+      applyJitter: false,
+    );
+    if (!applyJitter || !jitter || base == Duration.zero) return base;
+
+    final int baseMs = base.inMilliseconds;
+    final int remainingMs = quotaMaxDelay.inMilliseconds - baseMs;
+    if (remainingMs <= 0) return base;
+    final int extraMs = min(remainingMs, max(1, baseMs));
+    return Duration(
+      milliseconds: baseMs + (random ?? Random()).nextInt(extraMs + 1),
+    );
+  }
+
+  static Duration _calculate(
+    int attempt,
+    Duration initial,
+    Duration maximum, {
+    Random? random,
+    required bool applyJitter,
+  }) {
+    if (attempt < 0) {
+      throw ArgumentError.value(attempt, 'attempt', 'must be non-negative');
+    }
+    final int shift = attempt > 30 ? 30 : attempt;
+    final int rawMs = initial.inMilliseconds * (1 << shift);
+    final int cappedMs = min(maximum.inMilliseconds, rawMs);
+    if (!applyJitter || cappedMs <= 1) {
+      return Duration(milliseconds: max(0, cappedMs));
+    }
+    final Random source = random ?? Random();
+    final int half = cappedMs ~/ 2;
+    return Duration(milliseconds: half + source.nextInt(cappedMs - half + 1));
   }
 
   @override
   String toString() =>
-      'FcmRetryConfig{maxRetries: $maxRetries, initialDelay: $initialDelay, maxDelay: $maxDelay}';
+      'FcmRetryConfig{maxRetries: $maxRetries, '
+      'initialDelay: $initialDelay, maxDelay: $maxDelay, '
+      'quotaInitialDelay: $quotaInitialDelay, quotaMaxDelay: $quotaMaxDelay, '
+      'jitter: $jitter}';
 }

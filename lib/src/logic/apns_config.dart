@@ -5,16 +5,10 @@ import 'json_utils.dart';
 
 part 'apns_config.g.dart';
 
-/// Configuration for messages sent through the
-/// Apple Push Notification Service (APNs) channel.
+/// FCM HTTP v1 APNs configuration.
 ///
-/// You can either use the typed [notification] and [fcmOptions] fields
-/// (recommended) or supply a raw [payload] map for advanced APS dictionary
-/// customisation. If both are provided, FCM merges them with the typed fields
-/// taking precedence.
-///
-/// FCM Reference:
-/// https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages#apnsconfig
+/// FCM schema: https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages#ApnsConfig
+/// Apple payload rules: https://developer.apple.com/documentation/usernotifications/generating-a-remote-notification
 @JsonSerializable()
 final class FirebaseApnsConfig {
   const FirebaseApnsConfig({
@@ -26,77 +20,83 @@ final class FirebaseApnsConfig {
   });
 
   factory FirebaseApnsConfig.fromJson(Map<String, dynamic> json) {
-    // Standard deserialisation
     final FirebaseApnsConfig config = _$FirebaseApnsConfigFromJson(json);
-
-    // If 'notification' is missing as a top-level key (which it should be for
-    // valid FCM JSON), try to extract it from payload['aps'] to support
-    // round-tripping.
     final dynamic payload = json['payload'];
-    if (config.notification == null &&
-        payload is Map<String, dynamic> &&
-        payload['aps'] != null) {
+    final dynamic aps = payload is Map<String, dynamic> ? payload['aps'] : null;
+    if (config.notification == null && aps is Map<String, dynamic>) {
       return FirebaseApnsConfig(
         headers: config.headers,
         fcmOptions: config.fcmOptions,
         payload: config.payload,
         liveActivityToken: config.liveActivityToken,
-        notification: FirebaseApnsNotification.fromJson(
-          payload['aps'] as Map<String, dynamic>,
-        ),
+        notification: FirebaseApnsNotification.fromJson(aps),
       );
     }
     return config;
   }
 
   /// HTTP request headers defined in the APNs request.
-  ///
-  /// Refer to the APNs request headers documentation for supported header keys.
-  /// Example: `{'apns-priority': '10', 'apns-expiration': '1604750400'}`.
   final Map<String, String>? headers;
 
-  /// Typed structured iOS notification content (recommended).
-  ///
-  /// Replaces the previous raw [payload] Map for most use cases.
-  /// The data is serialised into the APNs `aps` dictionary by FCM.
+  /// Typed APS dictionary. Alert text is serialized below `aps.alert`.
   final FirebaseApnsNotification? notification;
 
-  /// FCM-specific options that overlay on the APNs delivery channel.
+  /// FCM-specific options for APNs delivery.
   @JsonKey(name: 'fcm_options')
   final ApnsFcmOptions? fcmOptions;
 
-  /// A raw APS dictionary payload for advanced use cases not covered by
-  /// the typed [notification] field.
+  /// Raw APNs payload containing an `aps` dictionary and custom peer keys.
   ///
-  /// Use this only when you need low-level APNs control. For most scenarios
-  /// prefer the structured [notification] field.
-  ///
-  /// An object containing a list of "key": value pairs.
+  /// When [notification] is also supplied, raw keys are preserved and typed
+  /// values take precedence only where they overlap.
   final Map<String, dynamic>? payload;
 
-  /// Token for sending updates to an Apple Live Activity (iOS 16.1+)
-  /// or a push-to-start token for starting a Live Activity.
+  /// Token for an Apple Live Activity or push-to-start operation.
   @JsonKey(name: 'live_activity_token')
   final String? liveActivityToken;
 
+  List<String> validate() {
+    final List<String> errors = <String>[];
+    if (fcmOptions != null) errors.addAll(fcmOptions!.validate());
+    final FirebaseApnsNotification? aps = notification;
+    if (aps?.relevanceScore != null &&
+        (aps!.relevanceScore! < 0 || aps.relevanceScore! > 1)) {
+      errors.add('APNs relevanceScore must be between 0 and 1.');
+    }
+    if (aps?.contentAvailable != null &&
+        aps!.contentAvailable != 0 &&
+        aps.contentAvailable != 1) {
+      errors.add('APNs contentAvailable must be 0 or 1.');
+    }
+    if (aps?.mutableContent != null &&
+        aps!.mutableContent != 0 &&
+        aps.mutableContent != 1) {
+      errors.add('APNs mutableContent must be 0 or 1.');
+    }
+    if (liveActivityToken != null && liveActivityToken!.trim().isEmpty) {
+      errors.add('APNs liveActivityToken must not be blank.');
+    }
+    return errors;
+  }
+
+  /// Returns a JSON payload valid for the FCM v1 `ApnsConfig` schema.
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> json = _$FirebaseApnsConfigToJson(this);
-
-    // The typed 'notification' field must be nested inside 'payload.aps'
-    // to be valid FCM v1. We remove the top-level 'notification' key
-    // and merge it into 'payload'.
-    //
-    // ApnsConfig has no 'notification' member on the wire at all, so the key
-    // is dropped unconditionally — leaving it in place as `null` makes FCM
-    // reject the whole request with "Unknown name".
-    final FirebaseApnsNotification? notification = this.notification;
     json.remove('notification');
 
     if (notification != null) {
-      final Map<String, dynamic> payload =
-          Map<String, dynamic>.from(this.payload ?? <dynamic, dynamic>{});
-      payload['aps'] = notification.toJson();
-      json['payload'] = payload;
+      final Map<String, dynamic> mergedPayload = cloneJsonMap(
+        payload ?? <String, dynamic>{},
+      );
+      final dynamic rawAps = mergedPayload['aps'];
+      final Map<String, dynamic> rawApsMap = rawAps is Map<String, dynamic>
+          ? rawAps
+          : <String, dynamic>{};
+      mergedPayload['aps'] = deepMergeJsonMaps(
+        rawApsMap,
+        notification!.toJson(),
+      );
+      json['payload'] = mergedPayload;
     }
 
     return pruneNulls(json);

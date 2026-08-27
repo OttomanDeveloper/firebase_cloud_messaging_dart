@@ -13,7 +13,6 @@ part 'android_notification.g.dart';
 /// https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages#androidnotification
 @JsonSerializable()
 final class FirebaseAndroidNotification {
-
   const FirebaseAndroidNotification({
     this.title,
     this.body,
@@ -45,6 +44,7 @@ final class FirebaseAndroidNotification {
 
   factory FirebaseAndroidNotification.fromJson(Map<String, dynamic> json) =>
       _$FirebaseAndroidNotificationFromJson(json);
+
   /// The notification's title. Overrides [FirebaseNotification.title].
   final String? title;
 
@@ -157,7 +157,8 @@ final class FirebaseAndroidNotification {
   /// Available on Android 12+ when the app targets API 31+.
   final AndroidNotificationProxy? proxy;
 
-  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseAndroidNotificationToJson(this));
+  Map<String, dynamic> toJson() =>
+      pruneNulls(_$FirebaseAndroidNotificationToJson(this));
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +250,6 @@ enum AndroidNotificationProxy {
 /// Controls the notification LED blinking rate and colour.
 @JsonSerializable()
 final class LightSettings {
-
   const LightSettings({
     this.color,
     this.lightOnDuration,
@@ -258,6 +258,7 @@ final class LightSettings {
 
   factory LightSettings.fromJson(Map<String, dynamic> json) =>
       _$LightSettingsFromJson(json);
+
   /// The LED colour as an RGBA value.
   final FCMColor? color;
 
@@ -281,11 +282,11 @@ final class LightSettings {
 /// Each component is a float in the range 0.0–1.0.
 @JsonSerializable()
 final class FCMColor {
-
   const FCMColor({this.red, this.green, this.blue, this.alpha});
 
   factory FCMColor.fromJson(Map<String, dynamic> json) =>
       _$FCMColorFromJson(json);
+
   /// Red component (0.0–1.0).
   final double? red;
 

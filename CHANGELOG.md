@@ -1,5 +1,42 @@
 # Changelog
 
+## 4.0.0 (Current FCM API and Reliability Hardening)
+
+### Breaking changes
+
+* Raised the minimum Dart SDK to 3.10.0.
+* `FirebaseMessage` now supports the current FCM `fid` target. The legacy `token` target remains available for migration compatibility and is deprecated for new integrations.
+* Web Push timestamps use numeric values, matching the Web Notification API.
+* Topic-management methods are marked deprecated because they use the legacy Instance ID batch API.
+
+### API and wire-format fixes
+
+* APNs typed title, subtitle, localization, and body fields now serialize under `payload.aps.alert`, matching Apple’s remote-notification payload structure.
+* APNs typed fields are deep-merged with raw `payload.aps` values instead of replacing the caller’s raw APS dictionary.
+* Web Push `requireInteraction` now uses the browser-standard camelCase wire key.
+* Web Push supports numeric timestamps, scalar or array vibration values, arbitrary data, and preserved extension properties.
+* Output-only FCM `Message.name` is stripped from outbound requests.
+* FCM errors retain structured `details[]`, including field violations and quota metadata.
+
+### Reliability and validation
+
+* HTTP 429, 500, and 503 responses retry even when the body is empty or not JSON.
+* Integer and HTTP-date `Retry-After` values are honored; quota retries use a one-minute initial delay by default and retries use bounded jitter.
+* Third-party APNs/Web Push authentication errors are not incorrectly replayed as OAuth refresh failures.
+* Generic `NOT_FOUND` no longer invalidates registration tokens; only FCM-specific `UNREGISTERED` does.
+* Expected transport failures in bulk sends are returned as item-local failures while preserving order and cardinality.
+* Topic-management responses preserve one result per requested token and flag malformed response arrays.
+* Public validation no longer depends only on assertions; target, data-key, topic, URL, and action checks run in release builds.
+* Topic operations now share retry, timeout, OAuth refresh, and lifecycle callback behavior with message sends while remaining explicitly legacy-compatible.
+
+### Tests and maintenance
+
+* Added regression fixtures for FID, APNs nesting/merging, Web Push key casing, empty-body retries, structured errors, batch isolation, quota delays, and malformed topic responses.
+* Raised dependency versions, aligned the SDK constraint, refreshed generated serializers, and removed tracked generated environment state.
+* Updated documentation and examples to state the pure-Dart server scope and current FCM migration guidance.
+
+
+
 ## 3.1.0 (Correctness Fixes)
 
 ### Bug Fixes

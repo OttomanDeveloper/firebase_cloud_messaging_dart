@@ -14,7 +14,6 @@ part 'webpush_config.g.dart';
 /// https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages#webpushconfig
 @JsonSerializable()
 final class FirebaseWebpushConfig {
-
   const FirebaseWebpushConfig({
     this.headers,
     this.data,
@@ -24,6 +23,7 @@ final class FirebaseWebpushConfig {
 
   factory FirebaseWebpushConfig.fromJson(Map<String, dynamic> json) =>
       _$FirebaseWebpushConfigFromJson(json);
+
   /// HTTP headers defined in the Web Push protocol.
   ///
   /// Refer to the Web Push specification for supported header keys.
@@ -45,5 +45,13 @@ final class FirebaseWebpushConfig {
   @JsonKey(name: 'fcm_options')
   final WebpushFcmOptions? fcmOptions;
 
-  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseWebpushConfigToJson(this));
+  List<String> validate() {
+    return <String>[
+      if (notification != null) ...notification!.validate(),
+      if (fcmOptions != null) ...fcmOptions!.validate(),
+    ];
+  }
+
+  Map<String, dynamic> toJson() =>
+      pruneNulls(_$FirebaseWebpushConfigToJson(this));
 }

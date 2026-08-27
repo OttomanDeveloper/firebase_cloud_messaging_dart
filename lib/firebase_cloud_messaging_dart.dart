@@ -9,7 +9,7 @@
 /// ```
 ///
 /// See [FirebaseCloudMessagingServer] for the primary entry point.
-library firebase_cloud_messaging_dart;
+library;
 
 // ---------------------------------------------------------------------------
 // Logger

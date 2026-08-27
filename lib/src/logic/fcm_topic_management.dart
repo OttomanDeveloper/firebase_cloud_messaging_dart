@@ -3,35 +3,23 @@ import 'dart:convert';
 import 'package:firebase_cloud_messaging_dart/firebase_cloud_messaging_dart.dart';
 import 'package:http/http.dart' as http;
 
-/// Internal utility for managing FCM topics via the Firebase Instance ID API.
+/// Compatibility transport for the deprecated Instance ID topic API.
 ///
-/// This implements the server-side subscription and unsubscription logic
-/// using the standard logic from the IID batch API.
+/// FCM guide: https://firebase.google.com/docs/cloud-messaging/manage-topic-subscriptions
+/// Legacy API reference: https://developers.google.com/instance-id/reference
+/// Keep isolated until a supported Dart Admin topic API is selected.
 final class FcmTopicManagement {
-  // ---------------------------------------------------------------------------
-  // Endpoints
-  // ---------------------------------------------------------------------------
-
-  /// The endpoint for the IID batch registration API (Subscribe).
   static const String iidBatchAddEndpoint =
       'https://iid.googleapis.com/iid/v1:batchAdd';
-
-  /// The endpoint for the IID batch registration API (Unsubscribe).
   static const String iidBatchRemoveEndpoint =
       'https://iid.googleapis.com/iid/v1:batchRemove';
 
-  // ---------------------------------------------------------------------------
-  // Internal API
-  // ---------------------------------------------------------------------------
-
-  /// Performs a batch subscribe or unsubscribe operation.
+  /// Performs one legacy batch subscribe or unsubscribe operation.
   ///
-  /// [topic] — the topic name (without `/topics/` prefix).
-  /// [tokens] — list of device registration tokens (max 1000).
-  /// [accessToken] — a valid OAuth 2.0 access token with FCM scopes.
-  /// [client] — the HTTP client to use for the request.
-  /// [isSubscription] — true to subscribe, false to unsubscribe.
-  /// [timeout] — maximum time to wait for the HTTP response.
+  /// The legacy request accepts at most 1,000 registration tokens.
+  ///
+  /// The transport remains available for compatibility, but new integrations
+  /// should use a supported Firebase Admin topic-management implementation.
   static Future<TopicManagementResult> performBatchOperation({
     required String topic,
     required List<String> tokens,
@@ -40,54 +28,140 @@ final class FcmTopicManagement {
     required bool isSubscription,
     FcmLogger? logger,
     Duration timeout = const Duration(seconds: 30),
+    FcmRetryConfig retryConfig = const FcmRetryConfig(),
+    Future<String> Function()? refreshAccessToken,
   }) async {
     final String action = isSubscription ? 'batchAdd' : 'batchRemove';
     final Uri url = Uri.parse(
       isSubscription ? iidBatchAddEndpoint : iidBatchRemoveEndpoint,
     );
-
-    final Map<String, String> headers = <String, String>{
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer $accessToken',
-      // IID endpoint enforces this explicit header when using OAuth 2.0 tokens
-      // rather than legacy Server Keys.
-      'access_token_auth': 'true',
-    };
-
-    final String body = json.encode(<String, Object>{
-      'to': '/topics/$topic',
-      'registration_tokens': tokens,
-    });
+    String currentAccessToken = accessToken;
+    int attempt = 0;
+    bool authRefreshed = false;
 
     logger?.call(
-      FcmLogLevel.debug,
-      'Topic Management: $action for ${tokens.length} tokens on topic: $topic',
+      FcmLogLevel.warning,
+      'Topic management uses the deprecated Instance ID REST API.',
     );
 
-    final http.Response response = await client
-        .post(url, headers: headers, body: body)
-        .timeout(timeout);
+    while (true) {
+      final Map<String, String> headers = <String, String>{
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $currentAccessToken',
+        'access_token_auth': 'true',
+      };
+      final String body = json.encode(<String, Object>{
+        'to': '/topics/$topic',
+        'registration_tokens': tokens,
+      });
 
-    Map<String, dynamic> bodyMap;
-    try {
-      bodyMap = json.decode(response.body) as Map<String, dynamic>;
-    } catch (_) {
-      // Failsafe in case Google API returns a non-JSON HTML blob.
-      bodyMap = <String, dynamic>{};
-    }
-
-    if (response.statusCode != 200) {
       logger?.call(
-        FcmLogLevel.warning,
-        'Topic Management: $action failed [${response.statusCode}] '
-        'on topic: $topic',
+        FcmLogLevel.debug,
+        'Topic Management: $action for ${tokens.length} tokens on topic: $topic '
+        '(attempt ${attempt + 1})',
+      );
+
+      http.Response response;
+      try {
+        response = await client
+            .post(url, headers: headers, body: body)
+            .timeout(timeout);
+      } on Exception catch (error, stackTrace) {
+        if (attempt < retryConfig.maxRetries) {
+          final Duration delay = retryConfig.delayForAttempt(
+            attempt,
+            applyJitter: true,
+          );
+          logger?.call(
+            FcmLogLevel.warning,
+            'Topic Management transport failure; retrying in '
+            '${delay.inMilliseconds}ms',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          await Future<void>.delayed(delay);
+          attempt++;
+          if (refreshAccessToken != null) {
+            currentAccessToken = await refreshAccessToken();
+          }
+          continue;
+        }
+        rethrow;
+      }
+
+      final Map<String, dynamic> bodyMap = _decodeMap(response.body);
+      final FcmError? fcmError = response.statusCode == 401
+          ? FcmError.fromResponseBody(bodyMap)
+          : null;
+      if (response.statusCode == 401 &&
+          !authRefreshed &&
+          refreshAccessToken != null &&
+          (fcmError == null || fcmError.isOAuthAuthenticationError)) {
+        authRefreshed = true;
+        currentAccessToken = await refreshAccessToken();
+        continue;
+      }
+
+      final bool retryable =
+          response.statusCode == 429 ||
+          response.statusCode == 500 ||
+          response.statusCode == 503;
+      if (retryable && attempt < retryConfig.maxRetries) {
+        final Duration delay = _retryDelay(response, retryConfig, attempt);
+        logger?.call(
+          FcmLogLevel.warning,
+          'Topic Management returned ${response.statusCode}; retrying in '
+          '${delay.inMilliseconds}ms',
+        );
+        await Future<void>.delayed(delay);
+        attempt++;
+        if (refreshAccessToken != null) {
+          currentAccessToken = await refreshAccessToken();
+        }
+        continue;
+      }
+
+      if (response.statusCode != 200) {
+        logger?.call(
+          FcmLogLevel.warning,
+          'Topic Management: $action failed [${response.statusCode}] '
+          'on topic: $topic',
+        );
+      }
+      return TopicManagementResult.fromJson(
+        bodyMap,
+        tokens,
+        statusCode: response.statusCode,
       );
     }
+  }
 
-    return TopicManagementResult.fromJson(
-      bodyMap,
-      tokens,
-      statusCode: response.statusCode,
-    );
+  static Map<String, dynamic> _decodeMap(String body) {
+    try {
+      final dynamic decoded = json.decode(body);
+      return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  static Duration _retryDelay(
+    http.Response response,
+    FcmRetryConfig config,
+    int attempt,
+  ) {
+    final String? retryAfter = response.headers['retry-after']?.trim();
+    if (retryAfter != null && retryAfter.isNotEmpty) {
+      final int? seconds = int.tryParse(retryAfter);
+      if (seconds != null && seconds >= 0) return Duration(seconds: seconds);
+      final DateTime? date = DateTime.tryParse(retryAfter);
+      if (date != null) {
+        final Duration delay = date.toUtc().difference(DateTime.now().toUtc());
+        return delay.isNegative ? Duration.zero : delay;
+      }
+    }
+    return response.statusCode == 429
+        ? config.quotaDelayForAttempt(attempt, applyJitter: true)
+        : config.delayForAttempt(attempt, applyJitter: true);
   }
 }

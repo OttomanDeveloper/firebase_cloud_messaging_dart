@@ -1,0 +1,51 @@
+name: Dart CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        dart: ['3.10.0', stable]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.dart }}
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Verify generated serializers
+        run: |
+          dart run build_runner build
+          git diff --exit-code -- lib
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed lib test example
+
+      - name: Analyze
+        run: dart analyze
+
+      - name: Run tests with coverage
+        run: |
+          dart test --coverage=coverage
+          dart run coverage:format_coverage \
+            --lcov \
+            --in=coverage \
+            --out=coverage/lcov.info \
+            --packages=.dart_tool/package_config.json \
+            --report-on=lib
+
+      - name: Publish dry run
+        if: matrix.dart == 'stable'
+        run: dart pub publish --dry-run

@@ -18,12 +18,8 @@ final class TestServer extends FirebaseCloudMessagingServer {
     super.maxConcurrency = 50,
     super.onRegistrationChange,
     Duration tokenLifetime = const Duration(hours: 1),
-  })  : _tokenLifetime = tokenLifetime,
-        super(
-          null,
-          projectId: 'test-project',
-          httpClient: httpClient,
-        );
+  }) : _tokenLifetime = tokenLifetime,
+       super(null, projectId: 'test-project', httpClient: httpClient);
 
   final Duration _tokenLifetime;
 
@@ -73,11 +69,11 @@ const String successBody =
     '{"name":"projects/test-project/messages/1234567890"}';
 
 FirebaseSend tokenSend([String token = 'token-a']) => FirebaseSend(
-      message: FirebaseMessage(
-        token: token,
-        notification: const FirebaseNotification(title: 'Hi'),
-      ),
-    );
+  message: FirebaseMessage(
+    token: token,
+    notification: const FirebaseNotification(title: 'Hi'),
+  ),
+);
 
 void main() {
   // ---------------------------------------------------------------------------
@@ -88,11 +84,14 @@ void main() {
       // A 404 arrives with the generic NOT_FOUND status; the FCM code lives
       // in details[].
       final FcmError error = FcmError.fromResponseBody(
-        jsonDecode(errorBody(
-          code: 404,
-          status: 'NOT_FOUND',
-          detailErrorCode: 'UNREGISTERED',
-        )) as Map<String, dynamic>,
+        jsonDecode(
+              errorBody(
+                code: 404,
+                status: 'NOT_FOUND',
+                detailErrorCode: 'UNREGISTERED',
+              ),
+            )
+            as Map<String, dynamic>,
       )!;
 
       expect(error.errorCode, FcmErrorCode.unregistered);
@@ -115,11 +114,14 @@ void main() {
 
     test('QUOTA_EXCEEDED detail is retryable', () {
       final FcmError error = FcmError.fromResponseBody(
-        jsonDecode(errorBody(
-          code: 429,
-          status: 'RESOURCE_EXHAUSTED',
-          detailErrorCode: 'QUOTA_EXCEEDED',
-        )) as Map<String, dynamic>,
+        jsonDecode(
+              errorBody(
+                code: 429,
+                status: 'RESOURCE_EXHAUSTED',
+                detailErrorCode: 'QUOTA_EXCEEDED',
+              ),
+            )
+            as Map<String, dynamic>,
       )!;
 
       expect(error.errorCode, FcmErrorCode.quotaExceeded);
@@ -128,27 +130,32 @@ void main() {
 
     test('APNS_AUTH_ERROR detail maps to thirdPartyAuthError', () {
       final FcmError error = FcmError.fromResponseBody(
-        jsonDecode(errorBody(
-          code: 401,
-          status: 'UNAUTHENTICATED',
-          detailErrorCode: 'APNS_AUTH_ERROR',
-        )) as Map<String, dynamic>,
+        jsonDecode(
+              errorBody(
+                code: 401,
+                status: 'UNAUTHENTICATED',
+                detailErrorCode: 'APNS_AUTH_ERROR',
+              ),
+            )
+            as Map<String, dynamic>,
       )!;
 
       expect(error.errorCode, FcmErrorCode.thirdPartyAuthError);
     });
 
-    test('bare PERMISSION_DENIED does NOT become a token-invalidating code',
-        () {
-      // Ambiguous with an IAM/service-account problem — mapping it to
-      // senderIdMismatch would wipe the caller's whole token table.
-      final FcmError error = FcmError.fromResponseBody(
-        jsonDecode(errorBody(code: 403, status: 'PERMISSION_DENIED'))
-            as Map<String, dynamic>,
-      )!;
+    test(
+      'bare PERMISSION_DENIED does NOT become a token-invalidating code',
+      () {
+        // Ambiguous with an IAM/service-account problem — mapping it to
+        // senderIdMismatch would wipe the caller's whole token table.
+        final FcmError error = FcmError.fromResponseBody(
+          jsonDecode(errorBody(code: 403, status: 'PERMISSION_DENIED'))
+              as Map<String, dynamic>,
+        )!;
 
-      expect(error.errorCode, FcmErrorCode.unknown);
-    });
+        expect(error.errorCode, FcmErrorCode.unknown);
+      },
+    );
 
     test('bare UNAUTHENTICATED does NOT become a token-invalidating code', () {
       final FcmError error = FcmError.fromResponseBody(
@@ -188,10 +195,7 @@ void main() {
         },
       };
 
-      expect(
-        FcmError.fromResponseBody(body)!.errorCode,
-        FcmErrorCode.internal,
-      );
+      expect(FcmError.fromResponseBody(body)!.errorCode, FcmErrorCode.internal);
     });
 
     test('has value equality', () {
@@ -231,9 +235,7 @@ void main() {
 
     test('rejects a message with no target', () {
       expect(
-        () => server.send(
-          const FirebaseSend(message: FirebaseMessage()),
-        ),
+        () => server.send(const FirebaseSend(message: FirebaseMessage())),
         throwsA(isA<ArgumentError>()),
       );
     });
@@ -278,10 +280,7 @@ void main() {
 
     test('rejects an empty token list for topic management', () {
       expect(
-        () => server.subscribeTokensToTopic(
-          topic: 'news',
-          tokens: <String>[],
-        ),
+        () => server.subscribeTokensToTopic(topic: 'news', tokens: <String>[]),
         throwsA(isA<ArgumentError>()),
       );
     });
@@ -358,8 +357,11 @@ void main() {
       expect(result.successful, isTrue);
       expect(calls, 2);
       expect(server.authCount, 2, reason: 'the 401 must force one refresh');
-      expect(sentTokens.first, isNot(equals(sentTokens.last)),
-          reason: 'the replay must carry the new token');
+      expect(
+        sentTokens.first,
+        isNot(equals(sentTokens.last)),
+        reason: 'the replay must carry the new token',
+      );
 
       server.dispose();
     });
@@ -425,6 +427,8 @@ void main() {
         retryConfig: const FcmRetryConfig(
           maxRetries: 2,
           initialDelay: Duration(milliseconds: 1),
+          quotaInitialDelay: Duration(milliseconds: 1),
+          quotaMaxDelay: Duration(milliseconds: 5),
         ),
         httpClient: MockClient((http.Request _) async {
           calls++;
@@ -481,9 +485,7 @@ void main() {
         ),
         httpClient: MockClient((http.Request _) async {
           calls++;
-          if (calls < 3) {
-            throw const SocketException('connection reset');
-          }
+          if (calls < 3) throw const SocketException('down');
           return http.Response(successBody, 200);
         }),
       );
@@ -609,8 +611,11 @@ void main() {
 
       await server.send(tokenSend('good-token'));
 
-      expect(events, isEmpty,
-          reason: 'an IAM problem must not invalidate tokens');
+      expect(
+        events,
+        isEmpty,
+        reason: 'an IAM problem must not invalidate tokens',
+      );
       server.dispose();
     });
   });
@@ -656,15 +661,18 @@ void main() {
               jsonDecode(request.body) as Map<String, dynamic>;
           final Map<String, dynamic> message =
               body['message'] as Map<String, dynamic>;
-          final int index =
-              int.parse((message['token'] as String).split('-').last);
+          final int index = int.parse(
+            (message['token'] as String).split('-').last,
+          );
           await Future<void>.delayed(Duration(milliseconds: 20 - index));
           return http.Response(successBody, 200);
         }),
       );
 
-      final List<String> tokens =
-          List<String>.generate(10, (int i) => 'token-$i');
+      final List<String> tokens = List<String>.generate(
+        10,
+        (int i) => 'token-$i',
+      );
       final BatchResult batch = await server.sendToMultiple(
         tokens: tokens,
         messageTemplate: const FirebaseMessage(
@@ -737,8 +745,10 @@ void main() {
         }),
       );
 
-      final List<String> tokens =
-          List<String>.generate(2500, (int i) => 'token-$i');
+      final List<String> tokens = List<String>.generate(
+        2500,
+        (int i) => 'token-$i',
+      );
       final TopicManagementResult result = await server.subscribeTokensToTopic(
         topic: 'news',
         tokens: tokens,
@@ -786,11 +796,8 @@ void main() {
         ),
       );
 
-      final TopicManagementResult result =
-          await server.unsubscribeTokensFromTopic(
-        topic: 'news',
-        tokens: <String>['a'],
-      );
+      final TopicManagementResult result = await server
+          .unsubscribeTokensFromTopic(topic: 'news', tokens: <String>['a']);
 
       expect(result.results.single.error, 'HTTP_502');
       server.dispose();
@@ -872,7 +879,8 @@ void main() {
       final Map<String, dynamic> payload =
           json['payload'] as Map<String, dynamic>;
       final Map<String, dynamic> aps = payload['aps'] as Map<String, dynamic>;
-      expect(aps['title'], 'Hi');
+      final Map<String, dynamic> alert = aps['alert'] as Map<String, dynamic>;
+      expect(alert['title'], 'Hi');
       expect(aps['badge'], 1);
       expect(aps.containsKey('sound'), isFalse);
     });
@@ -902,22 +910,28 @@ void main() {
       final ServerResult a = ServerFailure(
         statusCode: 404,
         fcmError: FcmError.fromResponseBody(
-          jsonDecode(errorBody(
-            code: 404,
-            status: 'NOT_FOUND',
-            detailErrorCode: 'UNREGISTERED',
-          )) as Map<String, dynamic>,
+          jsonDecode(
+                errorBody(
+                  code: 404,
+                  status: 'NOT_FOUND',
+                  detailErrorCode: 'UNREGISTERED',
+                ),
+              )
+              as Map<String, dynamic>,
         ),
         errorBody: 'body',
       );
       final ServerResult b = ServerFailure(
         statusCode: 404,
         fcmError: FcmError.fromResponseBody(
-          jsonDecode(errorBody(
-            code: 404,
-            status: 'NOT_FOUND',
-            detailErrorCode: 'UNREGISTERED',
-          )) as Map<String, dynamic>,
+          jsonDecode(
+                errorBody(
+                  code: 404,
+                  status: 'NOT_FOUND',
+                  detailErrorCode: 'UNREGISTERED',
+                ),
+              )
+              as Map<String, dynamic>,
         ),
         errorBody: 'body',
       );

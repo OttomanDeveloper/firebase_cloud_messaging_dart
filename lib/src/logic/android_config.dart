@@ -6,13 +6,11 @@ import 'json_utils.dart';
 
 part 'android_config.g.dart';
 
-/// Android-specific configuration for an FCM message.
+/// Android-specific configuration for an FCM HTTP v1 message.
 ///
-/// FCM Reference:
-/// https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages#androidconfig
+/// FCM schema: https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages#AndroidConfig
 @JsonSerializable()
 final class FirebaseAndroidConfig {
-
   const FirebaseAndroidConfig({
     this.collapseKey,
     this.priority,
@@ -28,6 +26,7 @@ final class FirebaseAndroidConfig {
 
   factory FirebaseAndroidConfig.fromJson(Map<String, dynamic> json) =>
       _$FirebaseAndroidConfigFromJson(json);
+
   /// An identifier for a group of messages that can be collapsed so that only
   /// the most recent message is delivered when the device comes online.
   ///
@@ -85,7 +84,38 @@ final class FirebaseAndroidConfig {
   @JsonKey(name: 'restricted_satellite_ok')
   final bool? restrictedSatelliteOk;
 
-  Map<String, dynamic> toJson() => pruneNulls(_$FirebaseAndroidConfigToJson(this));
+  List<String> validate() {
+    final List<String> errors = <String>[];
+    if (ttl != null) {
+      final String rawSeconds = ttl!.endsWith('s')
+          ? ttl!.substring(0, ttl!.length - 1)
+          : '';
+      final double? seconds = double.tryParse(rawSeconds);
+      if (seconds == null || seconds < 0 || seconds > 2419200) {
+        errors.add('Android ttl must be a duration from 0s through 2419200s.');
+      }
+    }
+    if (restrictedPackageName != null &&
+        restrictedPackageName!.trim().isEmpty) {
+      errors.add('Android restrictedPackageName must not be blank.');
+    }
+    if (data != null) {
+      for (final String key in data!.keys) {
+        final String lower = key.toLowerCase();
+        if (lower == 'from' ||
+            lower == 'message_type' ||
+            lower.startsWith('google.') ||
+            lower.startsWith('gcm.notification.')) {
+          errors.add('Android data key "$key" is reserved by FCM.');
+        }
+      }
+    }
+    if (fcmOptions != null) errors.addAll(fcmOptions!.validate());
+    return errors;
+  }
+
+  Map<String, dynamic> toJson() =>
+      pruneNulls(_$FirebaseAndroidConfigToJson(this));
 }
 
 // ---------------------------------------------------------------------------
@@ -93,9 +123,11 @@ final class FirebaseAndroidConfig {
 // ---------------------------------------------------------------------------
 
 /// Android-specific FCM options.
+///
+/// FCM schema: https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages#AndroidFcmOptions
+
 @JsonSerializable()
 final class AndroidFcmOptions {
-
   const AndroidFcmOptions({this.analyticsLabel});
 
   factory AndroidFcmOptions.fromJson(Map<String, dynamic> json) =>
@@ -105,6 +137,17 @@ final class AndroidFcmOptions {
   @JsonKey(name: 'analytics_label')
   final String? analyticsLabel;
 
+  List<String> validate() {
+    if (analyticsLabel == null ||
+        RegExp(r'^[A-Za-z0-9_]{1,50}$').hasMatch(analyticsLabel!)) {
+      return <String>[];
+    }
+    return <String>[
+      'analyticsLabel must contain only ASCII letters, numbers, and '
+          'underscores and be at most 50 characters.',
+    ];
+  }
+
   Map<String, dynamic> toJson() => pruneNulls(_$AndroidFcmOptionsToJson(this));
 }
 
@@ -113,6 +156,9 @@ final class AndroidFcmOptions {
 // ---------------------------------------------------------------------------
 
 /// Delivery priority for an Android FCM message.
+///
+/// FCM values: `NORMAL` or `HIGH`; see https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages#AndroidConfig
+
 ///
 /// Note: this controls **when** FCM delivers the message (transport priority),
 /// not how prominently the notification is displayed once received (that is

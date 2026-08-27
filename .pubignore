@@ -2,6 +2,7 @@
 
 # Build artifacts
 build/
+coverage/
 .dart_tool/
 .packages
 .pub/
@@ -15,7 +16,11 @@ test_results.txt
 
 # Local/Secret files
 service_account.json
+serviceAccountKey.json
 credentials.json
+*.p12
+*.pem
+.env
 *.log
 
 # Git files are ignored by default by pub, but we can be explicit

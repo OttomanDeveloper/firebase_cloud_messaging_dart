@@ -11,11 +11,8 @@ import 'package:firebase_cloud_messaging_dart/firebase_cloud_messaging_dart.dart
 
 /// The outcome of sending a message to a single device [token].
 final class TokenResult {
+  const TokenResult({required this.token, required this.serverResult});
 
-  const TokenResult({
-    required this.token,
-    required this.serverResult,
-  });
   /// The device registration token this result applies to.
   final String token;
 
@@ -26,7 +23,8 @@ final class TokenResult {
   bool get successful => serverResult.successful;
 
   @override
-  String toString() => 'TokenResult{token: $token, successful: $successful, '
+  String toString() =>
+      'TokenResult{token: $token, successful: $successful, '
       'statusCode: ${serverResult.statusCode}}';
 }
 
@@ -56,8 +54,8 @@ final class TokenResult {
 /// }
 /// ```
 final class BatchResult {
-
   const BatchResult({required this.results});
+
   /// Individual outcome for every token in the batch, in the same order
   /// as the input token list.
   final List<TokenResult> results;
@@ -66,7 +64,8 @@ final class BatchResult {
   int get successCount => results.where((TokenResult r) => r.successful).length;
 
   /// Number of tokens for which delivery failed.
-  int get failureCount => results.where((TokenResult r) => !r.successful).length;
+  int get failureCount =>
+      results.where((TokenResult r) => !r.successful).length;
 
   /// Subset of [results] where [TokenResult.successful] is `true`.
   List<TokenResult> get successfulResults =>
@@ -83,6 +82,7 @@ final class BatchResult {
   bool get anySuccessful => successCount > 0;
 
   @override
-  String toString() => 'BatchResult{total: ${results.length}, '
+  String toString() =>
+      'BatchResult{total: ${results.length}, '
       'success: $successCount, failure: $failureCount}';
 }

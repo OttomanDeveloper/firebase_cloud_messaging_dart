@@ -1,9 +1,9 @@
 # firebase_cloud_messaging_dart
 
 [![pub package](https://img.shields.io/pub/v/firebase_cloud_messaging_dart.svg)](https://pub.dev/packages/firebase_cloud_messaging_dart)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
-A pure Dart library for sending Firebase Cloud Messages and managing topics via the [FCM HTTP v1 API](https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages). Works in any Dart environment — backend servers, CLI tools, Serverpod, or Flutter.
+A pure Dart **server-side** library for sending Firebase Cloud Messages via the [FCM HTTP v1 API](https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages). It works in backend servers, CLI tools, Serverpod, and Flutter server isolates. It does **not** implement native Flutter registration, device-token acquisition, foreground/background handlers, or message receiving.
 
 > [!TIP]
 > Found an issue? Please [open an issue on GitHub](https://github.com/OttomanDeveloper/firebase_cloud_messaging_dart/issues).
@@ -13,14 +13,14 @@ A pure Dart library for sending Firebase Cloud Messages and managing topics via 
 ## Features
 
 - **Pure Dart** — no Firebase SDK dependency, works anywhere Dart runs
-- **FCM HTTP v1 API** — full spec compliance, verified against the official discovery document
+- **FCM HTTP v1 API** — current target and platform-schema support, verified against the official discovery document
 - **All platforms** — typed configs for Android, APNs (iOS/macOS), and Web Push
 - **Application Default Credentials (ADC)** — seamless auth on Cloud Run, App Engine, Firebase Functions
-- **Topic management** — subscribe/unsubscribe tokens via the Instance ID API
-- **Parallel delivery** — `sendToMultiple` and `sendMessages` fan out via `Future.wait`
-- **Automatic retries** — exponential backoff for `QUOTA_EXCEEDED`, `UNAVAILABLE`, and `INTERNAL` errors
+- **Topic management** — compatibility support for the deprecated Instance ID batch API; use a supported Admin SDK implementation for new systems
+- **Parallel delivery** — `sendToMultiple`, `sendToFids`, and `sendMessages` use bounded concurrency and preserve result order
+- **Automatic retries** — status-aware exponential backoff, quota-safe delay, jitter, and integer/HTTP-date `Retry-After` handling
 - **Typed error handling** — `FcmError` with `FcmErrorCode` enum for programmatic error handling
-- **Dart 3** — sealed classes, records, pattern matching, exhaustive switch
+- **Dart 3.10+** — sealed classes, records, pattern matching, and exhaustive switch
 
 ---
 
@@ -30,7 +30,7 @@ A pure Dart library for sending Firebase Cloud Messages and managing topics via 
 
 ```yaml
 dependencies:
-  firebase_cloud_messaging_dart: ^3.1.0
+  firebase_cloud_messaging_dart: ^4.0.0
 ```
 
 ### 2. Get credentials
@@ -99,11 +99,12 @@ All constructors accept these optional parameters:
 | `logger` | `FcmLogger` | `fcmSilentLogger` | Logging callback |
 | `retryConfig` | `FcmRetryConfig` | 3 retries, 1s initial delay | Retry behavior for transient errors |
 | `requestTimeout` | `Duration` | 30s | Per-request HTTP timeout; a timeout is retried like any transport failure |
-| `maxConcurrency` | `int` | `50` | Cap on simultaneous requests in `sendToMultiple` / `sendMessages` |
-| `onRegistrationChange` | `FcmRegistrationCallback?` | `null` | Fires when a token is confirmed active or found unregistered |
+| `maxConcurrency` | `int` | `50` | Cap on simultaneous requests in `sendToMultiple` / `sendToFids` / `sendMessages` |
+| `onRegistrationChange` | `FcmRegistrationCallback?` | `null` | Fires when a registration token is confirmed active or explicitly unregistered |
 | `httpClient` | `http.Client?` | `null` | Custom HTTP client (useful for testing) |
+| `closeHttpClient` | `bool` | `true` | Whether `dispose()` closes the supplied client |
 
-Invalid arguments throw `ArgumentError` — including a message that does not set exactly one of `token`, `topic`, or `condition`, an empty token list, or a topic name carrying the `/topics/` prefix.
+Invalid arguments throw `ArgumentError` — including a message that does not set exactly one of `fid`, `token`, `topic`, or `condition`, an empty token list, blank targets, reserved data keys, or a topic name carrying the `/topics/` prefix.
 
 ---
 
@@ -132,6 +133,26 @@ switch (result) {
     print('Error: ${fcmError?.errorCode}');
 }
 ```
+
+### Firebase Installation ID
+
+FCM’s current HTTP v1 schema exposes `fid` as the preferred installation target and marks the legacy `token` target deprecated. Use `sendToFid` for one installation or `sendToFids` for bounded bulk delivery:
+
+```dart
+final result = await server.sendToFid(
+  'firebase-installation-id',
+  const FirebaseMessage(notification: FirebaseNotification(title: 'Hello')),
+);
+
+final batch = await server.sendToFids(
+  fids: ['fid-a', 'fid-b'],
+  messageTemplate: const FirebaseMessage(
+    notification: FirebaseNotification(title: 'Update'),
+  ),
+);
+```
+
+`token` remains available for migration compatibility. New code should store and send FIDs where the client architecture provides them.
 
 ### Multiple tokens (same message, parallel)
 
@@ -227,7 +248,7 @@ if (!result.successful) {
 
 ## Topic Management
 
-Subscribe and unsubscribe tokens using the Firebase Instance ID API. The endpoint accepts 1,000 tokens per call — longer lists are split into sequential batches automatically and returned as one combined result.
+Subscribe and unsubscribe tokens using the **deprecated Firebase Instance ID batch API** for compatibility. The endpoint accepts 1,000 tokens per call — longer lists are split into sequential batches automatically and returned as one combined result. New systems should use a supported Firebase Admin topic-management implementation instead.
 
 ```dart
 // Subscribe
@@ -414,7 +435,8 @@ switch (result) {
 
 | Code | HTTP | Retryable | Meaning |
 |------|------|-----------|---------|
-| `unregistered` | 404 | No | Token is no longer valid — remove from database |
+| `unregistered` | 404 | No | Registration token is no longer valid — remove it from the database |
+| `installationIdNotRegistered` | 404 | No | Firebase Installation ID is no longer registered |
 | `senderIdMismatch` | 403 | No | Token doesn't match this project |
 | `invalidArgument` | 400 | No | Bad payload or invalid JSON |
 | `quotaExceeded` | 429 | Yes | Rate limit hit — backoff and retry |
@@ -423,7 +445,7 @@ switch (result) {
 | `thirdPartyAuthError` | 401 | No | APNs cert or web push auth key invalid |
 | `unknown` | — | No | Unrecognized error code |
 
-The code is read from the `google.firebase.fcm.v1.FcmError` entry in `error.details[]`, falling back to the top-level `error.status` when no such entry is present. A bare `PERMISSION_DENIED` or `UNAUTHENTICATED` status stays `unknown` on purpose: those are equally consistent with a service-account misconfiguration, and treating them as token failures would wipe healthy tokens from your database.
+The code is read from the `google.firebase.fcm.v1.FcmError` entry in `error.details[]`, falling back to the top-level `error.status` when no such entry is present. The complete structured `details` list is retained on `FcmError` for field-level and quota diagnostics. A bare `PERMISSION_DENIED` or `UNAUTHENTICATED` status stays `unknown` on purpose: those are equally consistent with a service-account misconfiguration, and treating them as token failures would wipe healthy tokens from your database.
 
 An expired or revoked access token (HTTP 401) is handled internally — the token is refreshed and the request replayed once before any result is returned.
 
@@ -446,13 +468,13 @@ final server = FirebaseCloudMessagingServer(
 );
 ```
 
-The callback only fires `unregistered` for permanent failures (`UNREGISTERED`, `SENDER_ID_MISMATCH`). Transient errors like `QUOTA_EXCEEDED` or `UNAVAILABLE` do not trigger it.
+The callback only fires `unregistered` for an FCM-specific `UNREGISTERED` token error. Generic project/resource errors, `SENDER_ID_MISMATCH`, quota errors, and transient failures do not trigger token deletion.
 
 ---
 
 ## Retry Configuration
 
-Retryable errors (`QUOTA_EXCEEDED`, `UNAVAILABLE`, `INTERNAL`) and transport failures (connection resets, DNS errors, request timeouts) are automatically retried with exponential backoff. A `Retry-After` header, when present, takes precedence over the computed delay.
+Retryable HTTP statuses (`429`, `500`, and `503`), recognized FCM transient errors, and transport failures are automatically retried with exponential backoff. `Retry-After` integer seconds and HTTP-date values take precedence. Quota retries default to a one-minute initial delay, while generic transient retries use the configured initial delay; equal jitter is applied unless disabled.
 
 ```dart
 final server = FirebaseCloudMessagingServer(
@@ -522,7 +544,7 @@ final result = await server.send(
 
 ## Resource Cleanup
 
-Always dispose when done to close the underlying HTTP client:
+Always dispose when done. By default this closes the underlying HTTP client; pass `closeHttpClient: false` when the client is owned by the caller:
 
 ```dart
 server.dispose();
@@ -537,6 +559,8 @@ server.dispose();
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `send(FirebaseSend)` | `Future<ServerResult>` | Send a single message |
+| `sendToFid(fid, message, {validateOnly})` | `Future<ServerResult>` | Send to a Firebase Installation ID |
+| `sendToFids(fids, messageTemplate, {validateOnly})` | `Future<BatchResult>` | Same message to multiple FIDs (bounded parallel) |
 | `sendToMultiple(tokens, messageTemplate, {validateOnly})` | `Future<BatchResult>` | Same message to many tokens (parallel) |
 | `sendMessages(List<FirebaseSend>)` | `Future<List<ServerResult>>` | Distinct messages (parallel) |
 | `sendToTopic(topic, message, {validateOnly})` | `Future<ServerResult>` | Send to topic subscribers |
@@ -567,6 +591,7 @@ server.dispose();
 | `FirebaseApnsConfig` | APNs delivery settings |
 | `FirebaseApnsNotification` | APNs APS dictionary |
 | `ApnsAlert` | Structured iOS alert |
+| `CriticalSound` | APNs critical sound dictionary |
 | `ApnsFcmOptions` | APNs analytics label + image |
 | `FirebaseWebpushConfig` | Web Push delivery settings |
 | `FirebaseWebpushNotification` | Web Notification API fields |
@@ -577,12 +602,12 @@ server.dispose();
 
 | Class | Purpose |
 |-------|---------|
-| `ServerResult` | Sealed base: `ServerSuccess` or `ServerFailure` |
+| `ServerResult` | Sealed base: `ServerSuccess` or `ServerFailure`, including response headers and attempt count |
 | `BatchResult` | Aggregated multi-token result |
 | `TokenResult` | Single token outcome within a batch |
 | `TopicManagementResult` | Aggregated topic operation result |
 | `TopicManagementTokenResult` | Single token outcome within a topic operation |
-| `FcmError` | Structured FCM error with typed `FcmErrorCode` |
+| `FcmError` | Structured FCM error with typed `FcmErrorCode` and retained details |
 
 ### Configuration
 

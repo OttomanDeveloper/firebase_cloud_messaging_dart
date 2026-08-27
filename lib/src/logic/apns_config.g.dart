@@ -14,11 +14,13 @@ FirebaseApnsConfig _$FirebaseApnsConfigFromJson(Map<String, dynamic> json) =>
       notification: json['notification'] == null
           ? null
           : FirebaseApnsNotification.fromJson(
-              json['notification'] as Map<String, dynamic>),
+              json['notification'] as Map<String, dynamic>,
+            ),
       fcmOptions: json['fcm_options'] == null
           ? null
           : ApnsFcmOptions.fromJson(
-              json['fcm_options'] as Map<String, dynamic>),
+              json['fcm_options'] as Map<String, dynamic>,
+            ),
       payload: json['payload'] as Map<String, dynamic>?,
       liveActivityToken: json['live_activity_token'] as String?,
     );

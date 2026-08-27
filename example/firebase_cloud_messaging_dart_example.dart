@@ -1,6 +1,6 @@
 import 'package:firebase_cloud_messaging_dart/firebase_cloud_messaging_dart.dart';
 
-/// Example file demonstrating the firebase_cloud_messaging_dart v3.0.0 API.
+/// Example file demonstrating the firebase_cloud_messaging_dart v4.0.0 API.
 ///
 /// This example leverages Dart 3 features such as sealed classes and pattern
 /// matching for robust FCM result handling.
@@ -10,13 +10,20 @@ import 'package:firebase_cloud_messaging_dart/firebase_cloud_messaging_dart.dart
 void main() async {
   // 1. Initialize the Server
   // Option A: Using a service account file directly (Easiest)
-  final FirebaseCloudMessagingServer server = FirebaseCloudMessagingServer.fromServiceAccountFile(
-    'serviceAccountKey.json',
-    logger: (FcmLogLevel level, String message, {Object? error, StackTrace? stackTrace}) {
-      print('[FCM ${level.name.toUpperCase()}] $message');
-      if (error != null) print('  Error: $error');
-    },
-  );
+  final FirebaseCloudMessagingServer server =
+      FirebaseCloudMessagingServer.fromServiceAccountFile(
+        'serviceAccountKey.json',
+        logger:
+            (
+              FcmLogLevel level,
+              String message, {
+              Object? error,
+              StackTrace? stackTrace,
+            }) {
+              print('[FCM ${level.name.toUpperCase()}] $message');
+              if (error != null) print('  Error: $error');
+            },
+      );
 
   // Option B: Alternatively, using pre-parsed JSON:
   /*
@@ -41,16 +48,16 @@ void main() async {
   */
 
   // --------------------------------------------------------------------------
-  // 2. Send to a single device token
+  // 2. Send to a Firebase Installation ID (current FCM target)
   // --------------------------------------------------------------------------
-  const String deviceToken = 'REPLACE_WITH_YOUR_DEVICE_TOKEN';
+  const String firebaseInstallationId = 'REPLACE_WITH_YOUR_FID';
 
   final ServerResult result = await server.send(
     const FirebaseSend(
       message: FirebaseMessage(
-        token: deviceToken,
+        fid: firebaseInstallationId,
         notification: FirebaseNotification(
-          title: 'Hello from v2.1.0 🚀',
+          title: 'Hello from FCM HTTP v1',
           body: 'The package has been completely hardened!',
           image: 'https://example.com/banner.png',
         ),
@@ -95,9 +102,7 @@ void main() async {
             analyticsLabel: 'web_push',
           ),
         ),
-        fcmOptions: FirebaseFcmOptions(
-          analyticsLabel: 'example',
-        ),
+        fcmOptions: FirebaseFcmOptions(analyticsLabel: 'example'),
       ),
     ),
   );
@@ -145,13 +150,16 @@ void main() async {
   // 3. Topic Subscriptions & Topic Messaging
   // ---------------------------------------------------------------------------
 
-  // A. Subscribe tokens to a topic (Up to 1000 tokens per request)
+  // A. Subscribe tokens to a topic (legacy IID compatibility API;
+  // use a supported Admin SDK topic implementation for new systems)
+
   final TopicManagementResult topicResult = await server.subscribeTokensToTopic(
     topic: 'sports',
     tokens: <String>['fake-token-4', 'fake-token-5'],
   );
   print(
-      'Topic subscription result: ${topicResult.successCount} success, ${topicResult.failureCount} failed');
+    'Topic subscription result: ${topicResult.successCount} success, ${topicResult.failureCount} failed',
+  );
 
   // B. Send message to the topic
   final ServerResult topicSendResult = await server.sendToTopic(
