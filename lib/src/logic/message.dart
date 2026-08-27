@@ -15,6 +15,7 @@ class _Unset {
   const _Unset();
 }
 
+// A sentinel distinguishes an omitted copyWith argument from an explicit null.
 const _Unset _unset = _Unset();
 
 /// The FCM HTTP v1 `Message` object.
@@ -111,6 +112,7 @@ final class FirebaseMessage {
           errors.add('Data key "$key" is reserved by FCM.');
         }
       }
+      // FCM applies the smaller data limit to topic and condition messages.
       final int dataLimit = topic != null || condition != null ? 2048 : 4096;
       final int dataBytes = utf8.encode(jsonEncode(data)).length;
       if (dataBytes > dataLimit) {
@@ -156,6 +158,7 @@ final class FirebaseMessage {
     Object? topic = _unset,
     Object? condition = _unset,
   }) {
+    // Target arguments are mutually exclusive, so changing one clears the rest.
     final bool targetChanged =
         !identical(fid, _unset) ||
         !identical(token, _unset) ||
@@ -217,6 +220,8 @@ final class FirebaseMessage {
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
+    // Compare the canonical wire form so generated and manually built models
+    // use the same equality semantics.
     return other is FirebaseMessage &&
         jsonEncode(other.toJson()) == jsonEncode(toJson());
   }
@@ -224,6 +229,7 @@ final class FirebaseMessage {
   @override
   int get hashCode => jsonEncode(toJson()).hashCode;
 
+  // FCM reserves these namespaces for transport and notification metadata.
   static bool _reservedDataKey(String key) {
     final String lower = key.toLowerCase();
     return lower == 'from' ||

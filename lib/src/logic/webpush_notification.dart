@@ -96,6 +96,7 @@ final class FirebaseWebpushNotification {
       renotify: json['renotify'] as bool?,
       timestamp: json['timestamp'] as num?,
       data: json['data'],
+      // Preserve unknown browser properties for forward-compatible round trips.
       extra: <String, dynamic>{
         for (final MapEntry<String, dynamic> entry in json.entries)
           if (!_knownKeys.contains(entry.key))
@@ -147,6 +148,7 @@ final class FirebaseWebpushNotification {
   }
 
   Map<String, dynamic> toJson() {
+    // Start with extensions, then let typed fields override matching keys.
     final Map<String, dynamic> json = cloneJsonMap(
       extra ?? <String, dynamic>{},
     );
@@ -172,6 +174,7 @@ final class FirebaseWebpushNotification {
     return pruneNulls(json);
   }
 
+  // These keys are emitted from typed fields rather than stored in extra.
   static const Set<String> _knownKeys = <String>{
     'title',
     'body',

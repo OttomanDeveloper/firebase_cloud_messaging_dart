@@ -5,11 +5,14 @@ import 'package:firebase_cloud_messaging_dart/firebase_cloud_messaging_dart.dart
 /// This example leverages Dart 3 features such as sealed classes and pattern
 /// matching for robust FCM result handling.
 ///
+/// Replace every placeholder before running: this sample makes authenticated
+/// FCM requests, including a live topic-management request.
+///
 /// Obtain service account credentials from:
 ///   Firebase Console → Settings → Service Accounts → Generate new private key
 void main() async {
   // 1. Initialize the Server
-  // Option A: Using a service account file directly (Easiest)
+  // Option A: Using a service account file directly (easiest)
   final FirebaseCloudMessagingServer server =
       FirebaseCloudMessagingServer.fromServiceAccountFile(
         'serviceAccountKey.json',
@@ -25,22 +28,23 @@ void main() async {
             },
       );
 
-  // Option B: Alternatively, using pre-parsed JSON:
+  // Option B: To use pre-parsed JSON, add dart:convert and dart:io imports,
+  // then replace the initialization above with:
   /*
   final credentials = jsonDecode(
     File('serviceAccountKey.json').readAsStringSync(),
   ) as Map<String, dynamic>;
-  server = FirebaseCloudMessagingServer(credentials);
+  final FirebaseCloudMessagingServer server =
+      FirebaseCloudMessagingServer(credentials);
   */
 
-  // Alternatively, using Application Default Credentials (ADC)
-  // Recommended for Google Cloud Run / Firebase Functions deployment:
+  // Alternatively, use Application Default Credentials (ADC), recommended for
+  // Google Cloud Run or Firebase Functions. Replace the initialization above:
   /*
-  server = FirebaseCloudMessagingServer.applicationDefault(
+  final FirebaseCloudMessagingServer server =
+      FirebaseCloudMessagingServer.applicationDefault(
     projectId: 'my-project-id',
-    // Optional: Pass a shared httpClient for efficiency
-    // httpClient: mySharedClient,
-    logger: (level, message, {error, stackTrace}) {
+    logger: (FcmLogLevel level, String message, {Object? error, StackTrace? stackTrace}) {
       print('[FCM ${level.name.toUpperCase()}] $message');
       if (error != null) print('  Error: $error');
     },
@@ -58,7 +62,7 @@ void main() async {
         fid: firebaseInstallationId,
         notification: FirebaseNotification(
           title: 'Hello from FCM HTTP v1',
-          body: 'The package has been completely hardened!',
+          body: 'Current FCM HTTP v1 sample message.',
           image: 'https://example.com/banner.png',
         ),
         android: FirebaseAndroidConfig(
@@ -120,8 +124,7 @@ void main() async {
   }
 
   // --------------------------------------------------------------------------
-  // 4. Send to multiple tokens in parallel
-
+  // 3. Send to multiple tokens in parallel
   // --------------------------------------------------------------------------
   final List<String> tokens = <String>['token_a', 'token_b', 'token_c'];
 
@@ -146,12 +149,13 @@ void main() async {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 3. Topic Subscriptions & Topic Messaging
-  // ---------------------------------------------------------------------------
+  // --------------------------------------------------------------------------
+  // 4. Topic Subscriptions & Topic Messaging
+  // --------------------------------------------------------------------------
 
   // A. Subscribe tokens to a topic (legacy IID compatibility API;
-  // use a supported Admin SDK topic implementation for new systems)
+  // use a supported Admin SDK topic implementation for new systems).
+  // This call is included for API reference and performs a real request.
 
   final TopicManagementResult topicResult = await server.subscribeTokensToTopic(
     topic: 'sports',
@@ -174,8 +178,7 @@ void main() async {
   print('Topic send successful: ${topicSendResult.successful}');
 
   // --------------------------------------------------------------------------
-  // 6. Send to a condition
-
+  // 5. Send to a condition
   // --------------------------------------------------------------------------
   await server.sendToCondition(
     "'sports' in topics || 'news' in topics",
@@ -188,13 +191,12 @@ void main() async {
   );
 
   // --------------------------------------------------------------------------
-  // 7. Validate a message without sending it
-
+  // 6. Validate a message without sending it
   // --------------------------------------------------------------------------
   final ServerResult validationResult = await server.validateMessage(
     const FirebaseSend(
       message: FirebaseMessage(
-        token: 'some-token',
+        fid: firebaseInstallationId,
         notification: FirebaseNotification(title: 'Test'),
       ),
     ),
@@ -202,8 +204,7 @@ void main() async {
   print('Validation passed: ${validationResult.successful}');
 
   // --------------------------------------------------------------------------
-  // 8. Always dispose the server when done
-
+  // 7. Always dispose the server when done
   // --------------------------------------------------------------------------
   server.dispose();
 }

@@ -50,6 +50,7 @@ final class TopicManagementResult {
       return _failedRequest(tokens, statusCode, requestError, json);
     }
 
+    // Keep positional alignment even when the legacy API omits or adds items.
     final bool malformed = rawResults.length != tokens.length;
     final List<TopicManagementTokenResult> mapped =
         <TopicManagementTokenResult>[
@@ -94,6 +95,7 @@ final class TopicManagementResult {
     dynamic item, {
     required bool missing,
   }) {
+    // A malformed item is a failure for that token, not a batch-wide crash.
     if (missing || item is! Map<String, dynamic>) {
       return TopicManagementTokenResult(
         token: token,

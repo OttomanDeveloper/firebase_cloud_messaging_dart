@@ -21,6 +21,7 @@ final class FirebaseApnsConfig {
 
   factory FirebaseApnsConfig.fromJson(Map<String, dynamic> json) {
     final FirebaseApnsConfig config = _$FirebaseApnsConfigFromJson(json);
+    // Rehydrate typed APS fields when input contains only the raw payload form.
     final dynamic payload = json['payload'];
     final dynamic aps = payload is Map<String, dynamic> ? payload['aps'] : null;
     if (config.notification == null && aps is Map<String, dynamic>) {
@@ -85,6 +86,7 @@ final class FirebaseApnsConfig {
     json.remove('notification');
 
     if (notification != null) {
+      // Preserve custom APS keys while letting typed fields override overlaps.
       final Map<String, dynamic> mergedPayload = cloneJsonMap(
         payload ?? <String, dynamic>{},
       );
@@ -92,6 +94,7 @@ final class FirebaseApnsConfig {
       final Map<String, dynamic> rawApsMap = rawAps is Map<String, dynamic>
           ? rawAps
           : <String, dynamic>{};
+      // Merge recursively because alert and other APS values are nested maps.
       mergedPayload['aps'] = deepMergeJsonMaps(
         rawApsMap,
         notification!.toJson(),

@@ -128,6 +128,7 @@ final class FirebaseApnsNotification {
   });
 
   factory FirebaseApnsNotification.fromJson(Map<String, dynamic> json) {
+    // APNs permits either a sound filename or a structured critical sound.
     final dynamic sound = json['sound'];
     return FirebaseApnsNotification(
       alert: json['alert'] is Map<String, dynamic>
@@ -219,11 +220,13 @@ final class FirebaseApnsNotification {
 
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> aps = <String, dynamic>{};
+    // Flatten convenience title/body fields into the nested APNs alert object.
     final Map<String, dynamic> alertJson =
         alert?.toJson() ?? <String, dynamic>{};
     if (title != null) alertJson['title'] = title;
     if (body != null) alertJson['body'] = body;
     if (alertJson.isNotEmpty) aps['alert'] = alertJson;
+    // A critical sound takes precedence because APNs uses one sound value.
     if (criticalSound != null) {
       aps['sound'] = criticalSound!.toJson();
     } else if (sound != null) {
@@ -249,6 +252,7 @@ final class FirebaseApnsNotification {
     return pruneNulls(aps);
   }
 
+  // Keep enum conversion isolated so unknown future values remain nullable.
   static InterruptionLevel? _interruptionLevelFromJson(dynamic value) {
     return switch (value) {
       'active' => InterruptionLevel.active,

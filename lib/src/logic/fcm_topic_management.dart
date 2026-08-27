@@ -37,6 +37,7 @@ final class FcmTopicManagement {
     );
     String currentAccessToken = accessToken;
     int attempt = 0;
+    // A stale OAuth token gets one dedicated refresh before normal retries.
     bool authRefreshed = false;
 
     logger?.call(
@@ -102,6 +103,8 @@ final class FcmTopicManagement {
         continue;
       }
 
+      // Retry only transport-level transient statuses; response parsing remains
+      // responsible for preserving per-token failures in all other cases.
       final bool retryable =
           response.statusCode == 429 ||
           response.statusCode == 500 ||
@@ -145,6 +148,7 @@ final class FcmTopicManagement {
     }
   }
 
+  // Honor the server’s Retry-After value before applying local backoff.
   static Duration _retryDelay(
     http.Response response,
     FcmRetryConfig config,

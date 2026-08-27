@@ -98,6 +98,7 @@ final class FcmRetryConfig {
     bool applyJitter = false,
   }) {
     validate();
+    // Quota backoff uses its own limits because FCM recommends slower recovery.
     final Duration base = _calculate(
       attempt,
       quotaInitialDelay,
@@ -126,12 +127,14 @@ final class FcmRetryConfig {
     if (attempt < 0) {
       throw ArgumentError.value(attempt, 'attempt', 'must be non-negative');
     }
+    // Cap the shift to avoid integer growth for unusually large attempt values.
     final int shift = attempt > 30 ? 30 : attempt;
     final int rawMs = initial.inMilliseconds * (1 << shift);
     final int cappedMs = min(maximum.inMilliseconds, rawMs);
     if (!applyJitter || cappedMs <= 1) {
       return Duration(milliseconds: max(0, cappedMs));
     }
+    // Equal jitter samples only from the upper half of the capped window.
     final Random source = random ?? Random();
     final int half = cappedMs ~/ 2;
     return Duration(milliseconds: half + source.nextInt(cappedMs - half + 1));

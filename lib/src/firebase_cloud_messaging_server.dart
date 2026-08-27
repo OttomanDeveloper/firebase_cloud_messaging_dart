@@ -366,6 +366,7 @@ class FirebaseCloudMessagingServer {
     if (fid.trim().isEmpty) {
       throw ArgumentError.value(fid, 'fid', 'must not be blank');
     }
+    // copyWith makes the FID the only active target on the message.
     return _send(
       FirebaseSend(
         validateOnly: validateOnly,
@@ -465,6 +466,7 @@ class FirebaseCloudMessagingServer {
       throw ArgumentError.value(fids, 'fids', 'must not contain blank FIDs');
     }
 
+    // Keep one result per input FID and isolate failures to that item.
     final List<TokenResult> results = await _runBounded<TokenResult>(
       fids.length,
       (int index) async {
@@ -590,6 +592,7 @@ class FirebaseCloudMessagingServer {
       'sendMessages: sending ${sendObjects.length} messages',
     );
 
+    // A caught item failure preserves result cardinality for callers.
     final List<ServerResult> results = await _runBounded<ServerResult>(
       sendObjects.length,
       (int index) async {
@@ -746,6 +749,7 @@ class FirebaseCloudMessagingServer {
   }) async {
     final Uri url = Uri.parse('$_fcmApiEndpoint/$_projectId/messages:send');
 
+    // OAuth refresh retries the same attempt; backoff retries increment it.
     final Map<String, String> headers = <String, String>{
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ${_accessCredentials!.accessToken.data}',
@@ -814,6 +818,7 @@ class FirebaseCloudMessagingServer {
     final String? targetFid = sendObject.message?.fid;
 
     if (successful) {
+      // FCM may return an empty success body, so provide a valid empty model.
       final FirebaseMessage messageSent = bodyMap != null
           ? FirebaseMessage.fromJson(bodyMap)
           : const FirebaseMessage();
@@ -1007,6 +1012,7 @@ class FirebaseCloudMessagingServer {
 
     // The IID endpoints cap each call at 1000 tokens, so split longer lists
     // into sequential batches and stitch the results back together in order.
+    // Results are accumulated in input order across the 1,000-token chunks.
     final List<TopicManagementTokenResult> allResults =
         <TopicManagementTokenResult>[];
 
@@ -1104,6 +1110,7 @@ class FirebaseCloudMessagingServer {
   }
 
   /// Returns a Retry-After delay or the configured exponential backoff.
+  // Server-provided Retry-After takes precedence over local backoff policy.
   Duration _retryDelay(
     http.Response response,
     int attempt, {
@@ -1145,6 +1152,7 @@ class FirebaseCloudMessagingServer {
   /// a widget or service locator cleanup). After calling [dispose], the server
   /// instance should not be used again.
   void dispose() {
+    // Mark disposed before closing so later or re-entrant sends fail clearly.
     _disposed = true;
     if (closeHttpClient) {
       _httpClient.close();

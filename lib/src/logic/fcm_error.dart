@@ -48,11 +48,14 @@ final class FcmError {
     final String message =
         errorValue['message'] as String? ?? 'Unknown FCM error';
     final String? status = errorValue['status'] as String?;
+    // Clone details so callers can inspect diagnostics without sharing decoded
+    // response state with the parser.
     final List<Map<String, dynamic>> details = <Map<String, dynamic>>[
       if (errorValue['details'] is List)
         for (final dynamic item in errorValue['details'] as List<dynamic>)
           if (item is Map<String, dynamic>) cloneMap(item),
     ];
+    // FCM-specific detail codes are more precise than generic RPC statuses.
     final String? detailCode = _extractDetailErrorCode(details);
 
     return FcmError(
@@ -79,6 +82,7 @@ final class FcmError {
   /// Field-level validation details returned by `google.rpc.BadRequest`.
   /// See https://firebase.google.com/docs/cloud-messaging/error-codes#rest_error_codes_for_the_http_v1_api.
   List<Map<String, dynamic>> get fieldViolations {
+    // BadRequest details are optional and may be mixed with other detail types.
     final List<Map<String, dynamic>> result = <Map<String, dynamic>>[];
     for (final Map<String, dynamic> detail
         in details ?? <Map<String, dynamic>>[]) {
@@ -101,6 +105,7 @@ final class FcmError {
   /// Quota subjects returned by `google.rpc.QuotaFailure`.
   /// See https://firebase.google.com/docs/cloud-messaging/error-codes#quota_exceeded.
   List<String> get quotaSubjects {
+    // QuotaFailure subjects identify which server-side limit was exceeded.
     final List<String> result = <String>[];
     for (final Map<String, dynamic> detail
         in details ?? <Map<String, dynamic>>[]) {
@@ -148,6 +153,8 @@ final class FcmError {
     _ => FcmErrorCode.unknown,
   };
 
+  // Generic statuses are intentionally conservative: they do not prove a
+  // registration token is invalid.
   static FcmErrorCode _parseStatusCode(String? status) => switch (status) {
     'UNREGISTERED' => FcmErrorCode.unregistered,
     'INSTALLATION_ID_NOT_REGISTERED' =>

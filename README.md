@@ -61,32 +61,39 @@ serviceAccountKey.json
 ## Initialization
 
 ```dart
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:firebase_cloud_messaging_dart/firebase_cloud_messaging_dart.dart';
 ```
 
-Four ways to create a server instance:
+Five ways to create a server instance (choose one). These snippets are intended
+for use inside an `async` function; create only the server instance you need:
 
 ```dart
 // From a file path (simplest)
-final server = FirebaseCloudMessagingServer.fromServiceAccountFile(
+final serverFromPath = FirebaseCloudMessagingServer.fromServiceAccountFile(
   'serviceAccountKey.json',
 );
 
 // From a File object
-final server = FirebaseCloudMessagingServer.fromServiceAccountFile(
+final serverFromFile = FirebaseCloudMessagingServer.fromServiceAccountFile(
   File('serviceAccountKey.json'),
 );
 
 // From a JSON string
-final server = FirebaseCloudMessagingServer.fromServiceAccountJson(
+final serverFromJson = FirebaseCloudMessagingServer.fromServiceAccountJson(
   await File('serviceAccountKey.json').readAsString(),
 );
 
 // From a parsed Map
-final server = FirebaseCloudMessagingServer(jsonDecode(jsonString));
+final serverFromMap = FirebaseCloudMessagingServer(
+  jsonDecode(await File('serviceAccountKey.json').readAsString())
+      as Map<String, dynamic>,
+);
 
 // Application Default Credentials (Cloud Run, App Engine, Firebase Functions)
-final server = FirebaseCloudMessagingServer.applicationDefault(
+final serverFromAdc = FirebaseCloudMessagingServer.applicationDefault(
   projectId: 'my-project-id',
 );
 ```
@@ -110,13 +117,13 @@ Invalid arguments throw `ArgumentError` — including a message that does not se
 
 ## Sending Messages
 
-### Single device
+### Single installation
 
 ```dart
 final result = await server.send(
   FirebaseSend(
     message: FirebaseMessage(
-      token: 'device-token',
+      fid: 'firebase-installation-id',
       notification: FirebaseNotification(
         title: 'Hello',
         body: 'World',
@@ -134,7 +141,7 @@ switch (result) {
 }
 ```
 
-### Firebase Installation ID
+### Firebase Installation ID helpers
 
 FCM’s current HTTP v1 schema exposes `fid` as the preferred installation target and marks the legacy `token` target deprecated. Use `sendToFid` for one installation or `sendToFids` for bounded bulk delivery:
 
@@ -154,9 +161,9 @@ final batch = await server.sendToFids(
 
 `token` remains available for migration compatibility. New code should store and send FIDs where the client architecture provides them.
 
-### Multiple tokens (same message, parallel)
+### Multiple registration tokens (same message, parallel)
 
-Equivalent to the Admin SDK's `sendEachForMulticast`. Fans out in parallel, with at most `maxConcurrency` requests in flight at a time. `batch.results` preserves the order of the input tokens.
+This method targets legacy registration tokens for migration compatibility. FCM’s current schema recommends FIDs where the client architecture provides them. Equivalent to the Admin SDK's `sendEachForMulticast`. Fans out in parallel, with at most `maxConcurrency` requests in flight at a time. `batch.results` preserves the order of the input tokens.
 
 ```dart
 final batch = await server.sendToMultiple(
@@ -180,19 +187,19 @@ for (final res in batch.failedResults) {
 
 ### Multiple distinct messages (parallel)
 
-Equivalent to the Admin SDK's `sendEach`. Each message can have a different target and payload. Requests are capped at `maxConcurrency` in flight, and results come back in input order.
+Equivalent to the Admin SDK's `sendEach`. Each message can have a different target and payload. The example uses FIDs; legacy `token` targets remain available for migration. Requests are capped at `maxConcurrency` in flight, and results come back in input order.
 
 ```dart
 final results = await server.sendMessages([
   FirebaseSend(
     message: FirebaseMessage(
-      token: 'token_a',
+      fid: 'fid-a',
       notification: FirebaseNotification(title: 'Message for A'),
     ),
   ),
   FirebaseSend(
     message: FirebaseMessage(
-      token: 'token_b',
+      fid: 'fid-b',
       data: {'action': 'sync'},
     ),
   ),
@@ -233,7 +240,7 @@ Both `sendToTopic` and `sendToCondition` accept an optional `validateOnly` param
 final result = await server.validateMessage(
   FirebaseSend(
     message: FirebaseMessage(
-      token: 'some-token',
+      fid: 'firebase-installation-id',
       notification: FirebaseNotification(title: 'Test'),
     ),
   ),
@@ -277,7 +284,7 @@ Each `TopicManagementTokenResult` has: `token`, `successful`, `error`.
 
 ```dart
 FirebaseMessage(
-  token: 'device-token',
+  fid: 'firebase-installation-id',
   notification: FirebaseNotification(title: 'Hello'),
   android: FirebaseAndroidConfig(
     priority: AndroidMessagePriority.high,
@@ -322,7 +329,7 @@ FirebaseMessage(
 
 ```dart
 FirebaseMessage(
-  token: 'device-token',
+  fid: 'firebase-installation-id',
   apns: FirebaseApnsConfig(
     headers: {'apns-priority': '10'},
     notification: FirebaseApnsNotification(
@@ -361,7 +368,7 @@ FirebaseMessage(
 
 ```dart
 FirebaseMessage(
-  token: 'device-token',
+  fid: 'firebase-installation-id',
   webpush: FirebaseWebpushConfig(
     headers: {'Urgency': 'high', 'TTL': '86400'},
     data: {'click_url': 'https://example.com/page'},
@@ -404,7 +411,7 @@ FirebaseMessage(
 
 ```dart
 FirebaseMessage(
-  token: 'device-token',
+  fid: 'firebase-installation-id',
   notification: FirebaseNotification(
     title: 'Cross-Platform Title',
     body: 'Applies to all platforms',
@@ -454,15 +461,14 @@ An expired or revoked access token (HTTP 401) is handled internally — the toke
 Automatically detect invalid tokens without checking every result:
 
 ```dart
-final server = FirebaseCloudMessagingServer(
-  credentials,
+final serverWithCallback = FirebaseCloudMessagingServer.fromServiceAccountFile(
+  'serviceAccountKey.json',
   onRegistrationChange: (String token, FcmRegistrationStatus status) {
     switch (status) {
       case FcmRegistrationStatus.active:
         print('$token confirmed active');
       case FcmRegistrationStatus.unregistered:
-        print('$token is invalid — removing');
-        db.removeToken(token);
+        print('$token is invalid — remove it from your token store');
     }
   },
 );
@@ -477,8 +483,8 @@ The callback only fires `unregistered` for an FCM-specific `UNREGISTERED` token 
 Retryable HTTP statuses (`429`, `500`, and `503`), recognized FCM transient errors, and transport failures are automatically retried with exponential backoff. `Retry-After` integer seconds and HTTP-date values take precedence. Quota retries default to a one-minute initial delay, while generic transient retries use the configured initial delay; equal jitter is applied unless disabled.
 
 ```dart
-final server = FirebaseCloudMessagingServer(
-  credentials,
+final serverWithRetry = FirebaseCloudMessagingServer.fromServiceAccountFile(
+  'serviceAccountKey.json',
   retryConfig: FcmRetryConfig(
     maxRetries: 5,
     initialDelay: Duration(seconds: 2),
@@ -496,10 +502,14 @@ Backoff formula: `2^attempt * initialDelay`, capped at `maxDelay`.
 | 2 | 4s |
 | 3 | 8s |
 
-To disable retries:
+To disable retries, pass the preset when constructing the server:
 
 ```dart
-retryConfig: FcmRetryConfig.none
+final serverWithoutRetries =
+    FirebaseCloudMessagingServer.fromServiceAccountFile(
+  'serviceAccountKey.json',
+  retryConfig: FcmRetryConfig.none,
+);
 ```
 
 ---
@@ -509,8 +519,8 @@ retryConfig: FcmRetryConfig.none
 Integrate with any logging framework:
 
 ```dart
-final server = FirebaseCloudMessagingServer(
-  credentials,
+final serverWithLogging = FirebaseCloudMessagingServer.fromServiceAccountFile(
+  'serviceAccountKey.json',
   logger: (FcmLogLevel level, String message, {Object? error, StackTrace? stackTrace}) {
     print('[FCM ${level.name}] $message');
     if (error != null) print('  Error: $error');
@@ -530,7 +540,7 @@ Send silent background data without showing a notification:
 final result = await server.send(
   FirebaseSend(
     message: FirebaseMessage(
-      token: 'device-token',
+      fid: 'firebase-installation-id',
       data: {
         'action': 'sync',
         'timestamp': DateTime.now().toIso8601String(),
@@ -544,10 +554,10 @@ final result = await server.send(
 
 ## Resource Cleanup
 
-Always dispose when done. By default this closes the underlying HTTP client; pass `closeHttpClient: false` when the client is owned by the caller:
+Always dispose the server instance you created. By default this closes the underlying HTTP client; pass `closeHttpClient: false` when the client is owned by the caller:
 
 ```dart
-server.dispose();
+serverFromPath.dispose();
 ```
 
 ---
@@ -566,8 +576,8 @@ server.dispose();
 | `sendToTopic(topic, message, {validateOnly})` | `Future<ServerResult>` | Send to topic subscribers |
 | `sendToCondition(condition, message, {validateOnly})` | `Future<ServerResult>` | Send to condition match |
 | `validateMessage(FirebaseSend)` | `Future<ServerResult>` | Dry-run validation |
-| `subscribeTokensToTopic(topic, tokens)` | `Future<TopicManagementResult>` | Subscribe up to 1,000 tokens |
-| `unsubscribeTokensFromTopic(topic, tokens)` | `Future<TopicManagementResult>` | Unsubscribe up to 1,000 tokens |
+| `subscribeTokensToTopic(topic, tokens)` | `Future<TopicManagementResult>` | Deprecated legacy API; subscribe up to 1,000 tokens per request |
+| `unsubscribeTokensFromTopic(topic, tokens)` | `Future<TopicManagementResult>` | Deprecated legacy API; unsubscribe up to 1,000 tokens per request |
 | `dispose()` | `void` | Close HTTP client |
 
 ### Message Models
